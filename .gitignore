@@ -1,0 +1,18 @@
+# Secrets : ne jamais publier
+.env
+
+# Environnement Python
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+
+# Rapports générés par l'agent
+rapports/
+
+# Journaux de Robot Framework et captures de SeleniumLibrary en cas d'échec
+output.xml
+log.html
+report.html
+resultats-robot/
+selenium-screenshot-*.png

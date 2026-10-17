@@ -1,0 +1,1130 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alfred</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2307111C'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%2362D0FF' stroke-width='2.5' stroke-dasharray='5 2.9'/%3E%3Ccircle cx='16' cy='16' r='3.4' fill='%2362D0FF'/%3E%3C/svg%3E">
+<style>
+@font-face { font-family: "Instrument"; src: url("/polices/instrument-400.woff") format("woff"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Instrument"; src: url("/polices/instrument-500.woff") format("woff"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Instrument"; src: url("/polices/instrument-600.woff") format("woff"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Voix"; src: url("/polices/voix-italique-500.woff") format("woff"); font-weight: 500; font-style: italic; font-display: swap; }
+
+:root {
+  color-scheme: dark;
+  /* Le fond est le support de l'hologramme ; la couleur d'état teinte le cadran. */
+  --abysse: #07111C;
+  --abysse-2: #0B1A29;
+  --abysse-3: #10263B;
+  --trait: rgba(98, 208, 255, .15);
+  --trait-fort: rgba(98, 208, 255, .34);
+  --holo: #62D0FF;
+  --holo-voile: rgba(98, 208, 255, .08);
+  --glace: #DCEBF5;
+  --brume: #8299AC;
+  --ivoire: #F3E9D8;
+  --vert: #3FE0A0;
+  --rouge: #FF6680;
+  --ambre: #F5B754;
+  --etat: var(--holo);
+  --instrument: "Instrument", "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+  --voix: "Voix", "Baskerville", "Iowan Old Style", Georgia, serif;
+  --code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --barre: 56px;
+}
+body[data-etat="pass"] { --etat: var(--vert); }
+body[data-etat="fail"] { --etat: var(--rouge); }
+body[data-etat="bloque"], body[data-etat="erreur"] { --etat: var(--ambre); }
+body[data-etat="ecoute"] { --etat: var(--ivoire); }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--abysse); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(ellipse 60% 55% at 50% 42%, #0D2134 0%, var(--abysse) 70%) fixed, var(--abysse);
+  color: var(--glace);
+  font: 400 15px/1.5 var(--instrument);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--holo); outline-offset: 2px; }
+[hidden] { display: none !important; }
+h2, h3, h4, p { margin: 0; }
+
+/* Barre du haut */
+.barre {
+  height: var(--barre);
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--trait);
+}
+.marque { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.marque svg { width: 26px; height: 26px; flex: none; }
+.marque-nom { font-weight: 600; font-size: 20px; letter-spacing: .05em; }
+.marque-role { color: var(--brume); font-size: 14px; margin-left: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.barre-actions { display: flex; align-items: center; gap: 6px; }
+.moteur-etat { display: inline-flex; align-items: center; gap: 8px; color: var(--brume); font-size: 14px; margin-right: 8px; white-space: nowrap; }
+.pastille { width: 8px; height: 8px; border-radius: 50%; background: var(--brume); flex: none; }
+.moteur-etat[data-pret="oui"] .pastille { background: var(--vert); box-shadow: 0 0 8px var(--vert); }
+.moteur-etat[data-pret="non"] .pastille { background: var(--ambre); }
+.bouton-discret {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: none; border: 1px solid transparent; border-radius: 3px;
+  padding: 6px 10px; color: var(--glace); font-size: 14px;
+}
+.bouton-discret:hover { border-color: var(--trait-fort); }
+.bouton-discret svg { width: 18px; height: 18px; }
+#bouton-voix[aria-pressed="false"] { color: var(--brume); }
+
+/* Trois zones : les cas, le poste d'Alfred, le journal */
+main {
+  display: grid;
+  grid-template-columns: minmax(280px, 330px) minmax(0, 1fr) minmax(300px, 370px);
+  height: calc(100vh - var(--barre));
+}
+.panneau { padding: 20px 22px 28px; overflow-y: auto; min-height: 0; }
+.cas { border-right: 1px solid var(--trait); }
+.journal { border-left: 1px solid var(--trait); }
+.panneau-tete { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.panneau-tete h2 { font-size: 16px; font-weight: 600; letter-spacing: .02em; }
+.compte { color: var(--brume); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* Liste des cas de test */
+.liste-cas { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }
+.carte-cas {
+  width: 100%; text-align: left;
+  background: none; border: 1px solid transparent; border-radius: 3px;
+  padding: 9px 12px 10px;
+  display: grid; gap: 2px;
+}
+.carte-cas:hover { background: var(--holo-voile); }
+.carte-cas[aria-pressed="true"] { border-color: var(--trait-fort); background: var(--holo-voile); box-shadow: inset 2px 0 0 var(--holo); }
+.carte-cas-ligne { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.carte-cas-code { color: var(--holo); font-weight: 600; letter-spacing: .03em; }
+.carte-cas-hote { color: var(--brume); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.carte-cas-titre { font-size: 15px; line-height: 1.35; }
+.carte-cas-demo { color: var(--brume); font-size: 12.5px; }
+.bouton-trait {
+  background: none; border: 1px dashed var(--trait-fort); border-radius: 3px;
+  padding: 9px 12px; width: 100%; text-align: left; color: var(--glace); font-size: 14px;
+}
+.bouton-trait:hover { border-style: solid; background: var(--holo-voile); }
+
+/* Détail du cas choisi */
+.detail { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--trait); }
+.detail h3 { font-size: 17px; font-weight: 600; line-height: 1.3; }
+.detail-url { color: var(--brume); font-size: 13px; margin-top: 4px; word-break: break-all; }
+.detail h4 { font-size: 13px; font-weight: 500; color: var(--brume); margin: 16px 0 6px; letter-spacing: .02em; }
+.detail ol, .detail ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; }
+.detail li::marker { color: var(--brume); }
+.detail p { font-size: 14px; margin-top: 6px; }
+.editeur { display: grid; gap: 10px; }
+.editeur label { font-size: 13px; color: var(--brume); }
+.editeur textarea {
+  width: 100%; min-height: 300px; resize: vertical;
+  background: var(--abysse-2); border: 1px solid var(--trait-fort); border-radius: 3px;
+  padding: 12px; font: 13px/1.55 var(--code); color: var(--glace);
+}
+.editeur-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.message { font-size: 13px; color: var(--brume); }
+.message[data-ton="alerte"] { color: var(--ambre); }
+.message[data-ton="ok"] { color: var(--vert); }
+
+/* Moteur et options */
+.moteurs { border: 0; margin: 24px 0 0; padding: 18px 0 0; border-top: 1px solid var(--trait); min-width: 0; }
+.moteurs legend { font-size: 13px; font-weight: 500; color: var(--brume); padding: 0; margin-bottom: 8px; float: left; width: 100%; }
+.segments { clear: both; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--trait-fort); border-radius: 3px; overflow: hidden; }
+.segments label { position: relative; }
+.segments input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.segments span { display: block; text-align: center; padding: 8px 4px; font-size: 14px; border-left: 1px solid var(--trait-fort); }
+.segments label:first-child span { border-left: 0; }
+.segments input:checked + span { background: var(--holo); color: #04121C; font-weight: 600; }
+.segments input:disabled + span { color: var(--brume); opacity: .55; }
+.segments input:disabled { cursor: not-allowed; }
+.segments input:focus-visible + span { outline: 2px solid var(--glace); outline-offset: -4px; }
+.aide { font-size: 13px; color: var(--brume); margin-top: 8px; min-height: 1.5em; }
+.aide[data-ton="alerte"] { color: var(--ambre); }
+.options { margin-top: 16px; display: grid; gap: 10px; font-size: 14px; }
+.options label { display: flex; align-items: center; gap: 10px; }
+.options input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--holo); margin: 0; }
+.options input[type="number"] {
+  width: 64px; background: var(--abysse-2); border: 1px solid var(--trait-fort); border-radius: 3px;
+  padding: 4px 6px; font-variant-numeric: tabular-nums;
+}
+
+/* Le poste d'Alfred : le cadran, sa parole, la vue du navigateur */
+.poste { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 28px 32px 32px; gap: 22px; }
+.noyau { display: flex; flex-direction: column; align-items: center; gap: 18px; margin: auto 0; }
+.parole { display: grid; justify-items: center; gap: 14px; max-width: 560px; }
+.vous { font-size: 14px; color: var(--brume); }
+.voix {
+  font: italic 500 clamp(21px, 2.1vw, 28px)/1.3 var(--voix);
+  color: var(--ivoire); text-align: center; max-width: 32ch; min-height: 2.6em; text-wrap: balance;
+  transition: opacity .25s ease;
+}
+.voix.change { opacity: 0; }
+.commandes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.bouton-principal {
+  border: 0; border-radius: 3px; padding: 12px 24px;
+  background: var(--holo); color: #04121C; font-weight: 600; font-size: 15px; letter-spacing: .02em;
+  box-shadow: 0 0 0 1px var(--holo), 0 0 26px rgba(98, 208, 255, .32);
+}
+.bouton-principal:hover:not(:disabled) { box-shadow: 0 0 0 1px var(--holo), 0 0 34px rgba(98, 208, 255, .5); }
+.bouton-principal:disabled { background: none; color: var(--brume); box-shadow: inset 0 0 0 1px var(--trait-fort); }
+.bouton-micro {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: none; border: 1px solid var(--trait-fort); color: var(--glace);
+}
+.bouton-micro svg { width: 20px; height: 20px; }
+.bouton-micro:hover { background: var(--holo-voile); }
+.bouton-micro[aria-pressed="true"] { border-color: var(--ivoire); color: var(--ivoire); animation: ecoute 1.4s ease-out infinite; }
+@keyframes ecoute { from { box-shadow: 0 0 0 0 rgba(243, 233, 216, .45); } to { box-shadow: 0 0 0 14px rgba(243, 233, 216, 0); } }
+.bouton-arret { background: none; border: 1px solid var(--rouge); color: var(--rouge); border-radius: 3px; padding: 11px 18px; font-weight: 500; }
+.bouton-arret:hover { background: rgba(255, 102, 128, .1); }
+.indice { font-size: 13px; color: var(--brume); text-align: center; }
+.indice[data-ton="alerte"] { color: var(--ambre); }
+
+/* Pendant une mission, le cadran se range à gauche et laisse la place à la vue */
+body.en-mission .noyau { flex-direction: row; align-items: center; gap: 26px; margin: 0; }
+body.en-mission .parole { justify-items: start; }
+body.en-mission .voix { text-align: left; }
+body.en-mission .commandes { justify-content: flex-start; }
+body.en-mission .indice { text-align: left; }
+
+.vision { margin: 0; display: grid; gap: 8px; }
+.vision-cadre {
+  position: relative; padding: 9px;
+  background:
+    linear-gradient(var(--holo), var(--holo)) left top / 20px 1px,
+    linear-gradient(var(--holo), var(--holo)) left top / 1px 20px,
+    linear-gradient(var(--holo), var(--holo)) right top / 20px 1px,
+    linear-gradient(var(--holo), var(--holo)) right top / 1px 20px,
+    linear-gradient(var(--holo), var(--holo)) left bottom / 20px 1px,
+    linear-gradient(var(--holo), var(--holo)) left bottom / 1px 20px,
+    linear-gradient(var(--holo), var(--holo)) right bottom / 20px 1px,
+    linear-gradient(var(--holo), var(--holo)) right bottom / 1px 20px;
+  background-repeat: no-repeat;
+}
+.vision img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: contain; background: #02070C; border: 1px solid var(--trait); }
+.vision figcaption { font-size: 13px; color: var(--brume); }
+
+/* Le cadran */
+.cadran { width: min(400px, 46vh); height: auto; flex: none; overflow: visible; color: var(--etat); transition: width .45s ease, color .3s ease; }
+body.en-mission .cadran { width: 230px; }
+body.en-mission .cadran .phase-nom { display: none; }  /* trop petits : le mot central dit déjà la phase */
+body.en-mission .cadran .mot { font-size: 38px; letter-spacing: .06em; }
+body.en-mission .cadran .compteur { font-size: 24px; }
+.cadran .halo-fond { fill: url(#halo); }
+.cadran .case { fill: none; stroke: var(--holo); stroke-opacity: .14; stroke-width: 9; transition: stroke .3s, stroke-opacity .3s; }
+.cadran .case.fait { stroke-opacity: .8; }
+.cadran .case.verifie { stroke: var(--vert); stroke-opacity: 1; }
+.cadran .case.echec { stroke: var(--rouge); stroke-opacity: 1; }
+.cadran .case.erreur { stroke: var(--ambre); stroke-opacity: 1; }
+.cadran .case.courant { stroke-opacity: 1; animation: battement 1.1s ease-in-out infinite; }
+@keyframes battement { 50% { stroke-opacity: .35; } }
+.cadran.allumage .case { animation: allumage .9s ease-out both; animation-delay: calc(var(--i) * 40ms); }
+@keyframes allumage { 0% { stroke-opacity: .14; } 35% { stroke-opacity: .95; } 100% { stroke-opacity: .14; } }
+.cadran .phase { fill: none; stroke: var(--holo); stroke-opacity: .25; stroke-width: 2; transition: stroke-opacity .2s, stroke-width .2s; }
+.cadran .phase-nom { font: 500 12.5px var(--instrument); letter-spacing: .08em; fill: var(--brume); transition: fill .2s; }
+body[data-etat="observe"] .phase[data-phase="observe"],
+body[data-etat="think"] .phase[data-phase="think"],
+body[data-etat="act"] .phase[data-phase="act"] { stroke-opacity: 1; stroke-width: 3.5; filter: url(#lueur); }
+body[data-etat="observe"] .phase-nom[data-phase="observe"],
+body[data-etat="think"] .phase-nom[data-phase="think"],
+body[data-etat="act"] .phase-nom[data-phase="act"] { fill: var(--holo); }
+.cadran .pointilles { fill: none; stroke: currentColor; stroke-opacity: .55; stroke-width: 1.6; stroke-dasharray: 1.6 6.4; }
+.anneau-rotatif { transform-box: view-box; transform-origin: 50% 50%; }
+body[data-etat="observe"] .anneau-rotatif { animation: rotation 9s linear infinite; }
+body[data-etat="think"] .anneau-rotatif { animation: rotation 3.2s linear infinite; }
+body[data-etat="act"] .anneau-rotatif { animation: rotation 6s linear infinite reverse; }
+body[data-etat="ecoute"] .anneau-rotatif { animation: respiration 1.5s ease-in-out infinite; }
+@keyframes rotation { to { transform: rotate(360deg); } }
+@keyframes respiration { 50% { transform: scale(1.05); opacity: .6; } }
+.cadran .mot { font: 600 34px var(--instrument); letter-spacing: .12em; fill: currentColor; }
+.cadran .compteur { font: 500 17px var(--instrument); fill: var(--brume); font-variant-numeric: tabular-nums; }
+.cadran .coeur { fill: none; stroke: currentColor; stroke-opacity: .35; stroke-width: 1; }
+
+/* Journal de mission */
+.vide { color: var(--brume); font-size: 14px; }
+.etapes { list-style: none; margin: 0; padding: 0; }
+.etape-bouton {
+  width: 100%; text-align: left;
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start;
+  background: none; border: 0; border-bottom: 1px solid var(--trait);
+  padding: 10px 6px;
+}
+.etape-bouton:hover, .etape-bouton[aria-current="true"] { background: var(--holo-voile); }
+.etape.nouvelle .etape-bouton { animation: arrivee .9s ease-out; }
+@keyframes arrivee { from { background: rgba(98, 208, 255, .2); } }
+.etape-num { color: var(--brume); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.etape-corps { display: grid; gap: 2px; min-width: 0; }
+.etape-libelle { font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.etape-raison { font-size: 13px; color: var(--brume); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.etape-issue { font-size: 13px; font-weight: 600; padding-top: 1px; white-space: nowrap; }
+.etape[data-type="verifie"] .etape-issue { color: var(--vert); }
+.etape[data-type="echec"] .etape-issue { color: var(--rouge); }
+.etape[data-type="erreur"] .etape-issue { color: var(--ambre); }
+
+.verdict { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--trait-fort); display: grid; gap: 8px; }
+.verdict-mot { font-size: 30px; font-weight: 600; line-height: 1.1; color: var(--etat); letter-spacing: .02em; }
+.verdict-resume { font-size: 15px; }
+.verdict-chiffres { font-size: 13px; color: var(--brume); }
+.verdict-fichiers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.bouton-fichier { background: none; border: 1px solid var(--trait-fort); border-radius: 3px; padding: 7px 12px; font-size: 14px; }
+.bouton-fichier:hover { background: var(--holo-voile); border-color: var(--holo); }
+.verdict-dossier { font: 12px/1.5 var(--code); color: var(--brume); word-break: break-all; }
+
+/* Fenêtres : fichier généré et réglages */
+dialog {
+  background: var(--abysse-2); color: var(--glace);
+  border: 1px solid var(--trait-fort); border-radius: 4px; padding: 0;
+  width: min(920px, 94vw); max-height: 86vh;
+}
+dialog::backdrop { background: rgba(2, 7, 12, .72); }
+.fenetre-tete { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--trait); }
+.fenetre-tete h2 { font-size: 16px; font-weight: 600; }
+.fenetre-tete div { display: flex; gap: 8px; }
+.fenetre-corps { padding: 18px; }
+dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 64px); font: 13px/1.55 var(--code); white-space: pre; }
+#fenetre-reglages { width: min(460px, 94vw); }
+.reglage { display: grid; gap: 6px; margin-bottom: 16px; font-size: 14px; }
+.reglage input, .reglage select {
+  background: var(--abysse); border: 1px solid var(--trait-fort); border-radius: 3px; padding: 8px 10px; width: 100%;
+}
+
+@media (max-width: 1180px) {
+  main { grid-template-columns: minmax(270px, 310px) minmax(0, 1fr); height: auto; min-height: calc(100vh - var(--barre)); }
+  .journal { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--trait); }
+}
+@media (max-width: 760px) {
+  .barre { padding: 0 16px; }
+  .marque-role, .bouton-discret span, .moteur-etat span:last-child { display: none; }
+  main { grid-template-columns: 1fr; }
+  .panneau { padding: 18px 16px 24px; overflow: visible; }
+  .cas { border-right: 0; border-bottom: 1px solid var(--trait); order: 2; }
+  .poste { order: 1; padding: 22px 16px; overflow: visible; }
+  .journal { order: 3; }
+  .cadran { width: min(300px, 78vw); }
+  body.en-mission .noyau { flex-direction: column; }
+  body.en-mission .cadran { width: 180px; }
+  body.en-mission .parole { justify-items: center; }
+  body.en-mission .voix, body.en-mission .indice { text-align: center; }
+  body.en-mission .commandes { justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body data-etat="pret">
+<header class="barre">
+  <div class="marque">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" stroke="#62D0FF" stroke-width="2.4" stroke-dasharray="5.2 3.4"/><circle cx="16" cy="16" r="3.6" fill="#62D0FF"/></svg>
+    <p><span class="marque-nom">Alfred</span><span class="marque-role" id="marque-role">assistant de test</span></p>
+  </div>
+  <div class="barre-actions">
+    <span class="moteur-etat" id="moteur-etat"><span class="pastille"></span><span id="moteur-etat-texte">Connexion…</span></span>
+    <button class="bouton-discret" id="bouton-voix" type="button" aria-pressed="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="ondes" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+      <span id="bouton-voix-texte">Voix activée</span>
+    </button>
+    <button class="bouton-discret" id="bouton-reglages" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+      <span>Réglages</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <section class="panneau cas" aria-labelledby="titre-cas">
+    <div class="panneau-tete"><h2 id="titre-cas">Cas de test</h2><span class="compte" id="compte-cas"></span></div>
+    <ul class="liste-cas" id="liste-cas"></ul>
+    <button class="bouton-trait" id="bouton-ecrire" type="button">Écrire un cas de test</button>
+    <div class="detail" id="detail" hidden></div>
+    <fieldset class="moteurs">
+      <legend>Moteur de l'agent</legend>
+      <div class="segments" role="radiogroup">
+        <label><input type="radio" name="moteur" value="gemini"><span>Gemini</span></label>
+        <label><input type="radio" name="moteur" value="claude"><span>Claude</span></label>
+        <label><input type="radio" name="moteur" value="scripted"><span>Démo sans IA</span></label>
+      </div>
+      <p class="aide" id="aide-moteur"></p>
+    </fieldset>
+    <div class="options">
+      <label><input type="checkbox" id="option-fenetre"> Montrer la fenêtre du navigateur</label>
+      <label>Pause entre deux actions <input type="number" id="option-pause" min="0" max="30" step="0.5" value="1.5"> s</label>
+    </div>
+  </section>
+
+  <section class="poste" aria-label="Alfred">
+    <div class="noyau">
+      <svg class="cadran" id="cadran" viewBox="0 0 400 400" role="img" aria-label="Alfred est prêt">
+        <defs>
+          <radialGradient id="halo">
+            <stop offset="0" stop-color="currentColor" stop-opacity=".2"/>
+            <stop offset=".65" stop-color="currentColor" stop-opacity=".05"/>
+            <stop offset="1" stop-color="currentColor" stop-opacity="0"/>
+          </radialGradient>
+          <filter id="lueur" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="3.2" result="flou"/>
+            <feMerge><feMergeNode in="flou"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <circle class="halo-fond" cx="200" cy="200" r="176"/>
+        <g id="cases"></g>
+        <g id="phases"></g>
+        <g class="anneau-rotatif"><circle class="pointilles" cx="200" cy="200" r="114"/></g>
+        <circle class="coeur" cx="200" cy="200" r="100"/>
+        <text class="mot" id="cadran-mot" x="200" y="204" text-anchor="middle">PRÊT</text>
+        <text class="compteur" id="cadran-compteur" x="200" y="236" text-anchor="middle">0 / 20</text>
+      </svg>
+      <div class="parole">
+        <p class="vous" id="vous" hidden></p>
+        <p class="voix" id="voix" aria-live="polite"></p>
+        <div class="commandes">
+          <button class="bouton-principal" id="bouton-lancer" type="button">Lancer la mission</button>
+          <button class="bouton-micro" id="bouton-micro" type="button" aria-pressed="false" aria-label="Parler à Alfred" title="Parler à Alfred" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></svg>
+          </button>
+          <button class="bouton-arret" id="bouton-arret" type="button" hidden>Arrêter</button>
+        </div>
+        <p class="indice" id="indice"></p>
+      </div>
+    </div>
+    <figure class="vision" id="vision" hidden>
+      <div class="vision-cadre"><img id="vision-image" alt=""></div>
+      <figcaption id="vision-legende"></figcaption>
+    </figure>
+  </section>
+
+  <section class="panneau journal" aria-labelledby="titre-journal">
+    <div class="panneau-tete"><h2 id="titre-journal">Journal de mission</h2><span class="compte" id="chrono"></span></div>
+    <p class="vide" id="journal-vide">Aucune mission pour l'instant. Choisissez un cas de test, puis lancez la mission.</p>
+    <ol class="etapes" id="etapes"></ol>
+    <div class="verdict" id="verdict" hidden></div>
+  </section>
+</main>
+
+<dialog id="fenetre-fichier" aria-labelledby="fichier-titre">
+  <div class="fenetre-tete">
+    <h2 id="fichier-titre"></h2>
+    <div>
+      <button class="bouton-fichier" id="fichier-copier" type="button">Copier</button>
+      <button class="bouton-fichier" id="fichier-fermer" type="button">Fermer</button>
+    </div>
+  </div>
+  <pre id="fichier-contenu"></pre>
+</dialog>
+
+<dialog id="fenetre-reglages" aria-labelledby="reglages-titre">
+  <div class="fenetre-tete">
+    <h2 id="reglages-titre">Réglages</h2>
+    <div><button class="bouton-fichier" id="reglages-fermer" type="button">Fermer</button></div>
+  </div>
+  <div class="fenetre-corps">
+    <label class="reglage">Votre prénom, pour qu'Alfred vous salue
+      <input id="reglage-prenom" type="text" autocomplete="given-name" maxlength="40">
+    </label>
+    <label class="reglage">Voix d'Alfred
+      <select id="reglage-voix"></select>
+    </label>
+    <button class="bouton-fichier" id="reglage-essai" type="button">Écouter la voix</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const PAUSES = { scripted: 1.5, gemini: 4, claude: 0 };  // la pause de 4 s ménage le quota gratuit de Gemini
+  const MOTS = { pret: "Prêt", observe: "Observe", think: "Réfléchit", act: "Agit", ecoute: "Écoute",
+                 pass: "Réussi", fail: "Échec", bloque: "Bloqué", erreur: "Erreur" };
+  const VERDICTS = { PASS: ["pass", "Réussi"], FAIL: ["fail", "Échec"], BLOQUE: ["bloque", "Bloqué"] };
+  const NOMS_MOTEURS = { gemini: "Gemini", claude: "Claude", scripted: "Démo sans IA" };
+
+  const etat = {
+    statut: null, cas: [], selection: null, moteur: "scripted", pauseTouchee: false,
+    mission: null, source: null, fichiers: {}, debut: 0, chrono: null, maxEtapes: 20,
+    etatAvantEcoute: "pret", reflexion: null,
+  };
+
+  // --- Petits outils ------------------------------------------------------------------
+  const memoire = {
+    lire(cle, defaut = "") { try { const v = localStorage.getItem("alfred." + cle); return v === null ? defaut : v; } catch { return defaut; } },
+    ecrire(cle, valeur) { try { localStorage.setItem("alfred." + cle, valeur); } catch { /* stockage indisponible */ } },
+  };
+
+  async function api(chemin, options = {}) {
+    const init = { method: options.method || "GET", headers: {} };
+    if (options.corps !== undefined) {
+      init.headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(options.corps);
+    }
+    let reponse;
+    try { reponse = await fetch(chemin, init); }
+    catch { throw new Error("Alfred ne répond plus. Relancez python -m alfred dans le terminal."); }
+    const donnees = await reponse.json().catch(() => ({}));
+    if (!reponse.ok) throw new Error(donnees.error || `Erreur ${reponse.status}`);
+    return donnees;
+  }
+
+  function element(tag, classe, texte) {
+    const el = document.createElement(tag);
+    if (classe) el.className = classe;
+    if (texte !== undefined) el.textContent = texte;
+    return el;
+  }
+
+  // --- La voix d'Alfred ---------------------------------------------------------------
+  const Parole = {
+    disponible: "speechSynthesis" in window,
+    active: memoire.lire("voix-active", "oui") === "oui",
+    voix: null,
+    liste: [],
+    init() {
+      if (!this.disponible) return;
+      const charger = () => {
+        this.liste = speechSynthesis.getVoices().filter((v) => (v.lang || "").toLowerCase().startsWith("fr"));
+        this.choisir(memoire.lire("voix-nom"));
+        Reglages.remplirVoix();
+      };
+      charger();
+      speechSynthesis.addEventListener("voiceschanged", charger);
+    },
+    choisir(nom) {
+      this.voix = this.liste.find((v) => v.name === nom)
+        || this.liste.find((v) => /thomas|daniel|nicolas|henri|paul/i.test(v.name) && v.lang === "fr-FR")
+        || this.liste.find((v) => v.lang === "fr-FR") || this.liste[0] || null;
+    },
+    // Une phrase secondaire est abandonnée si Alfred parle déjà : sa voix ne prend jamais de retard.
+    dire(texte, { important = false, interrompre = false } = {}) {
+      if (!this.disponible || !this.active || !texte) return;
+      if (interrompre) speechSynthesis.cancel();
+      else if (!important && (speechSynthesis.speaking || speechSynthesis.pending)) return;
+      const phrase = new SpeechSynthesisUtterance(texte.replace(/[«»]/g, ""));
+      phrase.lang = this.voix ? this.voix.lang : "fr-FR";
+      if (this.voix) phrase.voice = this.voix;
+      phrase.rate = 1.05;
+      phrase.pitch = 0.95;
+      speechSynthesis.speak(phrase);
+    },
+    taire() { if (this.disponible) speechSynthesis.cancel(); },
+  };
+
+  function annoncer(texte, options = {}) {
+    if (!texte) return;
+    const voix = $("voix");
+    voix.classList.add("change");
+    setTimeout(() => { voix.textContent = texte; voix.classList.remove("change"); }, 160);
+    if (options.parler !== false) Parole.dire(texte, options);
+  }
+
+  function salutation() {
+    const heure = new Date().getHours();
+    const prenom = memoire.lire("prenom").trim();
+    return `${heure < 5 || heure >= 18 ? "Bonsoir" : "Bonjour"}${prenom ? " " + prenom : ""}. Quel cas de test dois-je exécuter ?`;
+  }
+
+  // --- Le cadran ----------------------------------------------------------------------
+  const Cadran = {
+    point(r, angle) { const a = angle * Math.PI / 180; return [200 + r * Math.cos(a), 200 + r * Math.sin(a)]; },
+    arc(r, de, a, horaire = true) {
+      const [x0, y0] = this.point(r, horaire ? de : a);
+      const [x1, y1] = this.point(r, horaire ? a : de);
+      const grand = Math.abs(a - de) > 180 ? 1 : 0;
+      return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${grand} ${horaire ? 1 : 0} ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+    },
+    construire(max) {
+      const ns = "http://www.w3.org/2000/svg";
+      const cases = $("cases");
+      cases.replaceChildren();
+      const pas = 360 / max;
+      for (let i = 0; i < max; i++) {
+        const chemin = document.createElementNS(ns, "path");
+        chemin.setAttribute("d", this.arc(182, -90 + i * pas + 1.4, -90 + (i + 1) * pas - 1.4));
+        chemin.setAttribute("class", "case");
+        chemin.style.setProperty("--i", i);
+        cases.appendChild(chemin);
+      }
+      // Les trois temps de chaque tour de l'agent. Le texte du bas suit l'arc à l'envers pour rester lisible.
+      const phases = [["observe", "Observer", -84, 24, true], ["think", "Réfléchir", 36, 144, false], ["act", "Agir", 156, 264, true]];
+      const groupe = $("phases");
+      groupe.replaceChildren();
+      for (const [cle, nom, de, a, horaire] of phases) {
+        const trait = document.createElementNS(ns, "path");
+        trait.setAttribute("d", this.arc(150, de, a));
+        trait.setAttribute("class", "phase");
+        trait.dataset.phase = cle;
+        const guide = document.createElementNS(ns, "path");
+        guide.setAttribute("id", "guide-" + cle);
+        guide.setAttribute("d", this.arc(horaire ? 132 : 141, de, a, horaire));
+        guide.setAttribute("fill", "none");
+        const texte = document.createElementNS(ns, "text");
+        texte.setAttribute("class", "phase-nom");
+        texte.dataset.phase = cle;
+        const surChemin = document.createElementNS(ns, "textPath");
+        surChemin.setAttribute("href", "#guide-" + cle);
+        surChemin.setAttribute("startOffset", "50%");
+        surChemin.setAttribute("text-anchor", "middle");
+        surChemin.textContent = nom;
+        texte.appendChild(surChemin);
+        groupe.append(guide, trait, texte);
+      }
+      this.compteur(0);
+    },
+    allumer() {
+      const cadran = $("cadran");
+      cadran.classList.add("allumage");
+      setTimeout(() => cadran.classList.remove("allumage"), 1900);
+    },
+    vider() { for (const c of $("cases").children) c.setAttribute("class", "case"); },
+    marquer(numero, type) {
+      const c = $("cases").children[numero - 1];
+      if (c) c.setAttribute("class", "case " + type);
+    },
+    courant(numero) {
+      for (const c of $("cases").querySelectorAll(".courant")) c.classList.remove("courant");
+      const c = $("cases").children[numero - 1];
+      if (c && c.getAttribute("class") === "case") c.classList.add("courant");
+    },
+    compteur(n) { $("cadran-compteur").textContent = `${n} / ${etat.maxEtapes}`; },
+  };
+
+  function changerEtat(nom) {
+    document.body.dataset.etat = nom;
+    $("cadran-mot").textContent = (MOTS[nom] || nom).toLocaleUpperCase("fr-FR");
+    $("cadran").setAttribute("aria-label", `Alfred : ${(MOTS[nom] || nom).toLowerCase()}`);
+  }
+
+  // --- Cas de test --------------------------------------------------------------------
+  function rendreListe() {
+    const liste = $("liste-cas");
+    liste.replaceChildren();
+    for (const cas of etat.cas) {
+      const bouton = element("button", "carte-cas");
+      bouton.type = "button";
+      bouton.dataset.id = cas.id;
+      bouton.setAttribute("aria-pressed", String(etat.selection && etat.selection.id === cas.id));
+      const ligne = element("span", "carte-cas-ligne");
+      ligne.append(element("span", "carte-cas-code", cas.code || "Cas"), element("span", "carte-cas-hote", cas.host));
+      const titre = cas.code ? cas.title.slice(cas.code.length).trim() : cas.title;
+      bouton.append(ligne, element("span", "carte-cas-titre", titre));
+      if (cas.demo) bouton.append(element("span", "carte-cas-demo", "Démo sans IA disponible"));
+      bouton.addEventListener("click", () => choisirCas(cas));
+      const item = element("li");
+      item.append(bouton);
+      liste.append(item);
+    }
+    $("compte-cas").textContent = `${etat.cas.length} cas`;
+  }
+
+  // Rendu simple du Markdown d'un cas de test, construit élément par élément (jamais d'innerHTML).
+  function rendreTexteCas(texte, conteneur) {
+    let liste = null;
+    for (const brute of texte.split("\n")) {
+      const ligne = brute.trim();
+      if (!ligne || /^#\s/.test(ligne) || /^url\s*:/i.test(ligne)) { if (!ligne) liste = null; continue; }
+      const titre = ligne.match(/^#{2,}\s+(.*)/);
+      const numero = ligne.match(/^\d+[.)]\s+(.*)/);
+      const puce = ligne.match(/^[-*]\s+(.*)/);
+      if (titre) { conteneur.append(element("h4", "", titre[1])); liste = null; }
+      else if (numero || puce) {
+        const tag = numero ? "ol" : "ul";
+        if (!liste || liste.tagName.toLowerCase() !== tag) { liste = element(tag); conteneur.append(liste); }
+        liste.append(element("li", "", (numero || puce)[1]));
+      } else { conteneur.append(element("p", "", ligne)); liste = null; }
+    }
+  }
+
+  function choisirCas(cas) {
+    etat.selection = cas;
+    const detail = $("detail");
+    detail.replaceChildren();
+    detail.hidden = false;
+    detail.append(element("h3", "", cas.title), element("p", "detail-url", cas.url));
+    rendreTexteCas(cas.text, detail);
+    for (const b of $("liste-cas").querySelectorAll(".carte-cas")) b.setAttribute("aria-pressed", String(b.dataset.id === cas.id));
+    ajusterMoteur();
+  }
+
+  const MODELE = `# CT-10 Mon nouveau cas de test
+URL : https://www.saucedemo.com/
+
+## Étapes
+1. Saisir « standard_user » dans le champ Username
+2. Saisir « secret_sauce » dans le champ Password
+3. Cliquer sur le bouton Login
+
+## Résultats attendus
+- La page « Products » s'affiche
+`;
+
+  function ouvrirEditeur() {
+    etat.selection = { id: null, custom: true, demo: false };
+    for (const b of $("liste-cas").querySelectorAll(".carte-cas")) b.setAttribute("aria-pressed", "false");
+    const detail = $("detail");
+    detail.replaceChildren();
+    detail.hidden = false;
+    const bloc = element("div", "editeur");
+    const etiquette = element("label", "", "Écrivez le cas comme dans Squash TM : un titre, une URL, des étapes et des résultats attendus.");
+    etiquette.htmlFor = "editeur-texte";
+    const zone = element("textarea");
+    zone.id = "editeur-texte";
+    zone.spellcheck = false;
+    zone.value = memoire.lire("brouillon") || MODELE;
+    zone.addEventListener("input", () => memoire.ecrire("brouillon", zone.value));
+    const actions = element("div", "editeur-actions");
+    const enregistrer = element("button", "bouton-fichier", "Enregistrer dans cas_de_test");
+    enregistrer.type = "button";
+    const message = element("p", "message");
+    message.setAttribute("role", "status");
+    enregistrer.addEventListener("click", async () => {
+      try {
+        const r = await api("/api/cases", { method: "POST", corps: { markdown: zone.value } });
+        message.dataset.ton = "ok";
+        message.textContent = `Enregistré : cas_de_test/${r.id}`;
+        await chargerCas(r.id);
+      } catch (erreur) { message.dataset.ton = "alerte"; message.textContent = erreur.message; }
+    });
+    actions.append(enregistrer);
+    bloc.append(etiquette, zone, actions, message);
+    detail.append(bloc);
+    zone.focus();
+    ajusterMoteur();
+  }
+
+  async function chargerCas(idAChoisir) {
+    const { cases } = await api("/api/cases");
+    etat.cas = cases;
+    rendreListe();
+    const cible = cases.find((c) => c.id === idAChoisir) || (etat.selection && !etat.selection.custom && cases.find((c) => c.id === etat.selection.id))
+      || cases.find((c) => c.demo) || cases[0];
+    if (cible) choisirCas(cible);
+  }
+
+  // --- Moteur et options ----------------------------------------------------------------
+  function moteurPret(nom) { return Boolean(etat.statut && etat.statut.providers[nom] && etat.statut.providers[nom].ready); }
+
+  function ajusterMoteur(nouveau) {
+    const sel = etat.selection;
+    const demoPossible = Boolean(sel && sel.demo);
+    if (nouveau) etat.moteur = nouveau;
+    else if (etat.moteur === "scripted" && !demoPossible) etat.moteur = moteurPret("gemini") ? "gemini" : moteurPret("claude") ? "claude" : "gemini";
+    else if (etat.moteur !== "scripted" && demoPossible && !moteurPret(etat.moteur)) etat.moteur = "scripted";
+    for (const radio of document.querySelectorAll('input[name="moteur"]')) {
+      radio.checked = radio.value === etat.moteur;
+      radio.disabled = radio.value === "scripted" ? !demoPossible : false;
+    }
+    if (!etat.pauseTouchee) $("option-pause").value = PAUSES[etat.moteur];
+    const aide = $("aide-moteur");
+    const infos = etat.statut ? etat.statut.providers[etat.moteur] : null;
+    if (etat.moteur === "scripted") { aide.dataset.ton = ""; aide.textContent = "Rejoue un scénario enregistré : aucune clé d'API nécessaire."; }
+    else if (infos && !infos.ready) { aide.dataset.ton = "alerte"; aide.textContent = infos.hint; }
+    else { aide.dataset.ton = ""; aide.textContent = infos ? `Modèle : ${infos.model}` : ""; }
+    const pret = etat.moteur === "scripted" || moteurPret(etat.moteur);
+    const pastille = $("moteur-etat");
+    pastille.dataset.pret = pret ? "oui" : "non";
+    $("moteur-etat-texte").textContent = etat.moteur === "scripted" ? "Démo sans IA" : `${NOMS_MOTEURS[etat.moteur]} ${pret ? "prêt" : ": clé absente"}`;
+    majBoutons();
+  }
+
+  function peutLancer() {
+    const enCours = etat.mission && !etat.mission.fini;
+    const pret = etat.moteur === "scripted" ? Boolean(etat.selection && etat.selection.demo) : moteurPret(etat.moteur);
+    return Boolean(etat.selection) && pret && !enCours;
+  }
+
+  function majBoutons() {
+    const enCours = Boolean(etat.mission && !etat.mission.fini);
+    $("bouton-lancer").disabled = !peutLancer();
+    $("bouton-lancer").hidden = enCours;
+    $("bouton-arret").hidden = !enCours;
+    for (const b of document.querySelectorAll(".carte-cas, #bouton-ecrire, input[name='moteur'], #option-fenetre, #option-pause")) {
+      if (b.name === "moteur" && b.value === "scripted" && !(etat.selection && etat.selection.demo)) continue;
+      b.disabled = enCours;
+    }
+    const raccourci = MAC ? "Cmd + Entrée" : "Ctrl + Entrée";
+    const indice = $("indice");
+    indice.dataset.ton = "";
+    if (enCours) indice.textContent = "Vous pouvez arrêter la mission à tout moment.";
+    else if (etat.selection && !peutLancer()) { indice.dataset.ton = "alerte"; indice.textContent = $("aide-moteur").textContent; }
+    else indice.textContent = Ecoute.disponible ? `${raccourci} lance la mission. Vous pouvez aussi me parler : « lance la démo ».`
+      : `${raccourci} lance la mission.`;
+  }
+
+  // --- Missions -----------------------------------------------------------------------
+  async function lancer() {
+    if (!peutLancer()) {
+      if (etat.mission && !etat.mission.fini) annoncer("Une mission est déjà en cours.");
+      else annoncer($("aide-moteur").textContent || "Choisissez d'abord un cas de test.", { important: true });
+      return;
+    }
+    const corps = { provider: etat.moteur, headed: $("option-fenetre").checked, pause: parseFloat($("option-pause").value) || 0 };
+    if (etat.selection.custom) corps.markdown = $("editeur-texte").value;
+    else corps.case = etat.selection.id;
+    try {
+      const reponse = await api("/api/missions", { method: "POST", corps });
+      suivre(reponse.id);
+    } catch (erreur) {
+      changerEtat("erreur");
+      annoncer(erreur.message, { important: true });
+    }
+  }
+
+  async function arreter() {
+    if (!etat.mission || etat.mission.fini) return annoncer("Aucune mission en cours.");
+    annoncer("J'arrête la mission.", { important: true, interrompre: true });
+    try { await api(`/api/missions/${etat.mission.id}/stop`, { method: "POST", corps: {} }); }
+    catch (erreur) { annoncer(erreur.message, { important: true }); }
+  }
+
+  function reinitialiserJournal() {
+    $("etapes").replaceChildren();
+    $("verdict").hidden = true;
+    $("verdict").replaceChildren();
+    $("journal-vide").hidden = true;
+    $("vision").hidden = true;
+    etat.fichiers = {};
+    Cadran.vider();
+    Cadran.compteur(0);
+  }
+
+  function suivre(id) {
+    if (etat.source) etat.source.close();
+    etat.mission = { id, fini: false };
+    reinitialiserJournal();
+    document.body.classList.add("en-mission");
+    majBoutons();
+    let echecs = 0;
+    const source = new EventSource(`/api/missions/${id}/events`);
+    etat.source = source;
+    const recu = (type, traitement) => source.addEventListener(type, (e) => { echecs = 0; traitement(JSON.parse(e.data)); });
+    recu("start", surDebut);
+    recu("phase", surPhase);
+    recu("step", surEtape);
+    recu("done", (d) => { surFin(d); source.close(); });
+    recu("fault", (d) => { surPanne(d); source.close(); });
+    source.onerror = () => {
+      if (source.readyState === EventSource.CLOSED) return;
+      if (++echecs === 3) annoncer("Je ne reçois plus rien d'Alfred. Vérifiez que python -m alfred tourne toujours.", { important: true });
+    };
+  }
+
+  // Un événement ancien (page rechargée pendant une mission) est affiché sans être lu à voix haute.
+  const recent = (d) => Date.now() / 1000 - d.t < 3;
+
+  function surDebut(d) {
+    etat.maxEtapes = d.max_steps;
+    if ($("cases").children.length !== d.max_steps) Cadran.construire(d.max_steps);
+    etat.debut = d.t * 1000;
+    clearInterval(etat.chrono);
+    etat.chrono = setInterval(majChrono, 500);
+    majChrono();
+    changerEtat("observe");
+    annoncer(d.say, { important: true, parler: recent(d) });
+  }
+
+  function surPhase(d) {
+    clearTimeout(etat.reflexion);
+    changerEtat(d.phase);
+    Cadran.courant(d.number);
+    if (d.phase === "act") annoncer(d.say, { parler: recent(d) });
+    if (d.phase === "think") {
+      // Avec une vraie IA, la réflexion dure quelques secondes : Alfred le dit.
+      etat.reflexion = setTimeout(() => annoncer("Je réfléchis à la prochaine action.", { parler: false }), 900);
+    }
+  }
+
+  function typeEtape(d) {
+    if (d.check === true) return "verifie";
+    if (d.check === false) return "echec";
+    if (!d.ok) return "erreur";
+    return "fait";
+  }
+
+  function surEtape(d) {
+    const type = typeEtape(d);
+    Cadran.marquer(d.number, type);
+    Cadran.compteur(d.number);
+    ajouterEtape(d, type);
+    if (d.screenshot) montrerCapture(d.screenshot, d.number, d.label);
+    if (d.say) annoncer(d.say, { important: type !== "fait", parler: recent(d) });
+  }
+
+  function ajouterEtape(d, type) {
+    const item = element("li", "etape nouvelle");
+    item.dataset.type = type;
+    const bouton = element("button", "etape-bouton");
+    bouton.type = "button";
+    const corps = element("span", "etape-corps");
+    corps.append(element("span", "etape-libelle", d.label));
+    if (d.reason) {
+      const raison = element("span", "etape-raison", d.reason);
+      raison.title = d.reason;
+      corps.append(raison);
+    }
+    if (type === "erreur" || type === "echec") {
+      const detail = element("span", "etape-raison", d.detail);
+      detail.title = d.detail;
+      corps.append(detail);
+    }
+    const issue = { verifie: "Vérifié", echec: "Échec", erreur: "Erreur", fait: "" }[type];
+    bouton.append(element("span", "etape-num", String(d.number)), corps, element("span", "etape-issue", issue));
+    if (d.screenshot) bouton.addEventListener("click", () => montrerCapture(d.screenshot, d.number, d.label));
+    else bouton.disabled = true;
+    bouton.dataset.numero = d.number;
+    item.append(bouton);
+    $("etapes").append(item);
+    setTimeout(() => item.classList.remove("nouvelle"), 1000);
+    // Sur grand écran, le journal défile seul. Sur un écran étroit, la page ne bouge pas : on garde le cadran sous les yeux.
+    const panneau = item.closest(".panneau");
+    if (panneau.scrollHeight > panneau.clientHeight) panneau.scrollTop = panneau.scrollHeight;
+  }
+
+  function montrerCapture(url, numero, libelle) {
+    $("vision").hidden = false;
+    $("vision-image").src = url;
+    $("vision-image").alt = `Page du navigateur à l'étape ${numero}`;
+    $("vision-legende").textContent = `Vue du navigateur, étape ${numero} : ${libelle}`;
+    for (const b of $("etapes").querySelectorAll(".etape-bouton")) b.setAttribute("aria-current", String(b.dataset.numero === String(numero)));
+  }
+
+  function majChrono() {
+    const secondes = Math.max(0, Math.round((Date.now() - etat.debut) / 1000));
+    $("chrono").textContent = secondes < 60 ? `${secondes} s` : `${Math.floor(secondes / 60)} min ${String(secondes % 60).padStart(2, "0")}`;
+  }
+
+  function terminer() {
+    clearInterval(etat.chrono);
+    clearTimeout(etat.reflexion);
+    for (const c of $("cases").querySelectorAll(".courant")) c.classList.remove("courant");
+    if (etat.mission) etat.mission.fini = true;
+    majBoutons();
+  }
+
+  function surFin(d) {
+    terminer();
+    const [cle, mot] = VERDICTS[d.status] || ["bloque", d.status];
+    changerEtat(cle);
+    etat.fichiers = d.files;
+    $("chrono").textContent = `${String(d.duration_s).replace(".", ",")} s`;
+    const verdict = $("verdict");
+    verdict.replaceChildren();
+    verdict.hidden = false;
+    const chiffres = [`${d.steps} actions`, `${d.checks_ok} vérification${d.checks_ok > 1 ? "s" : ""} réussie${d.checks_ok > 1 ? "s" : ""}`];
+    if (d.checks_failed) chiffres.push(`${d.checks_failed} en échec`);
+    verdict.append(element("p", "verdict-mot", mot), element("p", "verdict-resume", d.summary || "Aucune conclusion."),
+                   element("p", "verdict-chiffres", chiffres.join(", ")));
+    const fichiers = element("div", "verdict-fichiers");
+    for (const [nom, libelle] of [["rapport", "Lire le rapport"], ["pytest", "Test pytest"], ["robot", "Test Robot"]]) {
+      if (!d.files[nom]) continue;
+      const bouton = element("button", "bouton-fichier", libelle);
+      bouton.type = "button";
+      bouton.addEventListener("click", () => ouvrirFichier(nom));
+      fichiers.append(bouton);
+    }
+    verdict.append(fichiers, element("p", "verdict-dossier", d.folder));
+    annoncer(d.say, { important: true, interrompre: true, parler: recent(d) });
+  }
+
+  function surPanne(d) {
+    terminer();
+    changerEtat("erreur");
+    const verdict = $("verdict");
+    verdict.replaceChildren();
+    verdict.hidden = false;
+    let conseil = "Le détail ci-dessus vient de Python. Si besoin, relancez la mission depuis la ligne de commande pour voir l'erreur complète.";
+    if (/Executable doesn't exist|playwright install/i.test(d.message)) conseil = "Le navigateur de Playwright manque : lancez playwright install chromium dans le terminal, puis relancez la mission.";
+    verdict.append(element("p", "verdict-mot", "Erreur"), element("p", "verdict-resume", d.message), element("p", "verdict-chiffres", conseil));
+    annoncer(d.say, { important: true, interrompre: true, parler: recent(d) });
+  }
+
+  // --- Fichiers générés ---------------------------------------------------------------
+  const TITRES_FICHIERS = { rapport: "Rapport de la mission", pytest: "Test pytest généré", robot: "Test Robot Framework généré" };
+
+  async function ouvrirFichier(nom) {
+    const url = etat.fichiers[nom];
+    if (!url) return annoncer("Il n'y a pas encore de fichier : lancez d'abord une mission.", { important: true });
+    let texte;
+    try {
+      const reponse = await fetch(url);
+      if (!reponse.ok) throw new Error();
+      texte = await reponse.text();
+    } catch { return annoncer("Je n'arrive pas à ouvrir ce fichier.", { important: true }); }
+    $("fichier-titre").textContent = TITRES_FICHIERS[nom];
+    $("fichier-contenu").textContent = texte;
+    $("fichier-copier").textContent = "Copier";
+    $("fenetre-fichier").showModal();
+  }
+
+  // --- Commandes vocales ----------------------------------------------------------------
+  const NOMBRES = { zero: 0, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10 };
+
+  function comprendre(texte) {
+    const t = texte.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[-'’,.!?;:]/g, " ").replace(/\s+/g, " ").trim();
+    if (/\b(arrete|arreter|stop|annule|annuler|interromps)\b/.test(t)) return { type: "arreter" };
+    if (/\bdemo(nstration)?\b/.test(t)) return { type: "lancer", code: "CT-00", demo: true };
+    const cas = t.match(/\b(?:c ?t|cas|test)\s*(?:numero\s*|n\s*)?(\d{1,3}|zero|une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\b/);
+    if (cas) {
+      const n = /^\d+$/.test(cas[1]) ? parseInt(cas[1], 10) : NOMBRES[cas[1]];
+      return { type: "lancer", code: "CT-" + String(n).padStart(2, "0") };
+    }
+    if (/\brapport\b/.test(t)) return { type: "ouvrir", fichier: "rapport" };
+    if (/\brobot\b/.test(t)) return { type: "ouvrir", fichier: "robot" };
+    if (/\b(pytest|script)\b/.test(t)) return { type: "ouvrir", fichier: "pytest" };
+    if (/\b(bonjour|bonsoir|salut|hello|coucou)\b/.test(t)) return { type: "saluer" };
+    if (/\b(aide|aider|commandes)\b/.test(t) || /que sais tu faire/.test(t)) return { type: "aide" };
+    return { type: "inconnu" };
+  }
+
+  function executer(commande) {
+    if (commande.type === "arreter") return arreter();
+    if (commande.type === "lancer") {
+      const cas = etat.cas.find((c) => c.code === commande.code);
+      if (!cas) return annoncer(`Je ne trouve pas le cas ${commande.code}.`, { important: true });
+      if (etat.mission && !etat.mission.fini) return annoncer("Une mission est déjà en cours.", { important: true });
+      choisirCas(cas);
+      if (commande.demo) ajusterMoteur("scripted");
+      return lancer();
+    }
+    if (commande.type === "ouvrir") return ouvrirFichier(commande.fichier);
+    if (commande.type === "saluer") return annoncer(salutation(), { important: true });
+    if (commande.type === "aide") return annoncer("Dites par exemple : lance la démo, lance le cas 1, arrête, ou ouvre le rapport.", { important: true });
+    return annoncer("Je n'ai pas compris. Dites par exemple : lance la démo, ou lance le cas 1.", { important: true });
+  }
+
+  const Ecoute = {
+    Reconnaissance: window.SpeechRecognition || window.webkitSpeechRecognition,
+    get disponible() { return Boolean(this.Reconnaissance); },
+    session: null,
+    basculer() {
+      if (this.session) { this.session.abort(); return; }
+      const session = new this.Reconnaissance();
+      session.lang = "fr-FR";
+      session.interimResults = false;
+      session.maxAlternatives = 1;
+      this.session = session;
+      Parole.taire();
+      $("bouton-micro").setAttribute("aria-pressed", "true");
+      const enMission = etat.mission && !etat.mission.fini;
+      if (!enMission) { etat.etatAvantEcoute = document.body.dataset.etat; changerEtat("ecoute"); }
+      session.onresult = (e) => {
+        const texte = e.results[0][0].transcript;
+        $("vous").hidden = false;
+        $("vous").textContent = `Vous : « ${texte} »`;
+        if (!enMission) changerEtat(etat.etatAvantEcoute);
+        executer(comprendre(texte));
+      };
+      session.onerror = (e) => {
+        const messages = {
+          "not-allowed": "Le micro est refusé. Autorisez-le pour cette page dans les réglages du navigateur.",
+          "no-speech": "Je n'ai rien entendu. Appuyez sur le micro, puis parlez.",
+          network: "La reconnaissance vocale de ce navigateur a besoin d'Internet.",
+        };
+        if (e.error !== "aborted") annoncer(messages[e.error] || "La reconnaissance vocale s'est interrompue.", { important: true });
+      };
+      session.onend = () => {
+        this.session = null;
+        $("bouton-micro").setAttribute("aria-pressed", "false");
+        if (!enMission && document.body.dataset.etat === "ecoute") changerEtat(etat.etatAvantEcoute);
+      };
+      session.start();
+    },
+  };
+
+  // --- Réglages -----------------------------------------------------------------------
+  const Reglages = {
+    remplirVoix() {
+      const choix = $("reglage-voix");
+      choix.replaceChildren();
+      if (!Parole.liste.length) {
+        choix.append(new Option("Aucune voix française trouvée sur cet ordinateur", ""));
+        choix.disabled = true;
+        return;
+      }
+      choix.disabled = false;
+      for (const v of Parole.liste) choix.append(new Option(`${v.name} (${v.lang})`, v.name, false, Parole.voix === v));
+    },
+    ouvrir() {
+      $("reglage-prenom").value = memoire.lire("prenom");
+      this.remplirVoix();
+      $("fenetre-reglages").showModal();
+    },
+  };
+
+  function majBoutonVoix() {
+    $("bouton-voix").setAttribute("aria-pressed", String(Parole.active));
+    $("bouton-voix-texte").textContent = Parole.active ? "Voix activée" : "Voix coupée";
+    $("bouton-voix").querySelector(".ondes").style.opacity = Parole.active ? "1" : "0";
+  }
+
+  function majRole() {
+    const prenom = memoire.lire("prenom").trim();
+    $("marque-role").textContent = prenom ? `au service de ${prenom}` : "assistant de test";
+  }
+
+  // --- Démarrage ----------------------------------------------------------------------
+  function brancher() {
+    $("bouton-lancer").addEventListener("click", lancer);
+    $("bouton-arret").addEventListener("click", arreter);
+    $("bouton-ecrire").addEventListener("click", ouvrirEditeur);
+    $("bouton-micro").addEventListener("click", () => Ecoute.basculer());
+    $("bouton-voix").addEventListener("click", () => {
+      Parole.active = !Parole.active;
+      memoire.ecrire("voix-active", Parole.active ? "oui" : "non");
+      majBoutonVoix();
+      if (Parole.active) Parole.dire("Voix activée. À votre service.", { important: true });
+      else Parole.taire();
+    });
+    $("bouton-reglages").addEventListener("click", () => Reglages.ouvrir());
+    $("reglages-fermer").addEventListener("click", () => $("fenetre-reglages").close());
+    $("reglage-prenom").addEventListener("input", (e) => { memoire.ecrire("prenom", e.target.value); majRole(); });
+    $("reglage-voix").addEventListener("change", (e) => { memoire.ecrire("voix-nom", e.target.value); Parole.choisir(e.target.value); });
+    $("reglage-essai").addEventListener("click", () => Parole.dire(salutation(), { important: true, interrompre: true }));
+    $("fichier-fermer").addEventListener("click", () => $("fenetre-fichier").close());
+    $("fichier-copier").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("fichier-contenu").textContent); $("fichier-copier").textContent = "Copié"; }
+      catch { $("fichier-copier").textContent = "Copie impossible"; }
+    });
+    for (const radio of document.querySelectorAll('input[name="moteur"]')) radio.addEventListener("change", () => ajusterMoteur(radio.value));
+    $("option-pause").addEventListener("input", () => { etat.pauseTouchee = true; });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); lancer(); }
+    });
+  }
+
+  async function demarrer() {
+    brancher();
+    Parole.init();
+    majBoutonVoix();
+    majRole();
+    $("bouton-micro").hidden = !Ecoute.disponible;
+    try {
+      etat.statut = await api("/api/status");
+      etat.maxEtapes = etat.statut.max_steps;
+      Cadran.construire(etat.maxEtapes);
+      Cadran.allumer();
+      await chargerCas();
+      changerEtat("pret");
+      annoncer(salutation(), { parler: false });
+      const enCours = etat.statut.mission;
+      if (enCours && enCours.running) suivre(enCours.id);  // page rechargée pendant une mission
+    } catch (erreur) {
+      Cadran.construire(etat.maxEtapes);
+      changerEtat("erreur");
+      annoncer(erreur.message, { parler: false });
+    }
+  }
+
+  window.Alfred = { comprendre, etat };  // utilisé par les tests de l'interface
+  demarrer();
+})();
+</script>
+</body>
+</html>

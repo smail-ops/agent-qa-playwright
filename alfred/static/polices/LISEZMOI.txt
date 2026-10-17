@@ -1,0 +1,10 @@
+Polices de l'interface Alfred, sous licence SIL Open Font License 1.1.
+
+instrument-400/500/600.woff
+    Sous-ensemble latin de Saira Semi Condensed (The Saira Project Authors),
+    renommé « Alfred Instrument », car « Saira » est un nom de police réservé.
+    Licence : OFL-Saira.txt
+
+voix-italique-500.woff
+    Sous-ensemble latin de Cormorant Garamond Italic, graisse 500
+    (The Cormorant Project Authors). Licence : OFL-Cormorant.txt

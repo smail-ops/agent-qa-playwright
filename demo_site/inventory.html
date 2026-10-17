@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Produits</title>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+    header { display: flex; justify-content: space-between; }
+    li { margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <a id="cart-link" href="#">Panier (<span id="cart-count">0</span>)</a>
+    <a href="index.html" data-test="logout">Déconnexion</a>
+  </header>
+  <h1>Produits</h1>
+  <label>Trier :
+    <select id="sort" data-test="sort">
+      <option value="az">Nom (A à Z)</option>
+      <option value="price">Prix croissant</option>
+    </select>
+  </label>
+  <ul id="items">
+    <li data-price="29.99"><span class="name">Sac à dos</span> 29,99 € <button class="add">Ajouter au panier</button></li>
+    <li data-price="9.99"><span class="name">Lampe de vélo</span> 9,99 € <button class="add">Ajouter au panier</button></li>
+    <li data-price="15.99"><span class="name">T-shirt</span> 15,99 € <button class="add">Ajouter au panier</button></li>
+  </ul>
+  <script>
+    let count = 0;
+    document.querySelectorAll('button.add').forEach((button) => {
+      button.addEventListener('click', () => {
+        const adding = button.textContent === 'Ajouter au panier';
+        count += adding ? 1 : -1;
+        button.textContent = adding ? 'Retirer' : 'Ajouter au panier';
+        document.getElementById('cart-count').textContent = count;
+      });
+    });
+    document.getElementById('sort').addEventListener('change', (event) => {
+      const list = document.getElementById('items');
+      const items = Array.from(list.children);
+      items.sort((a, b) => event.target.value === 'price'
+        ? a.dataset.price - b.dataset.price
+        : a.querySelector('.name').textContent.localeCompare(b.querySelector('.name').textContent));
+      items.forEach((item) => list.appendChild(item));
+    });
+  </script>
+</body>
+</html>

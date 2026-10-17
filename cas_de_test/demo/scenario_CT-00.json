@@ -1,0 +1,10 @@
+[
+  {"action": "fill", "target": "#user-name", "args": {"text": "standard_user"}, "reason": "Étape 1 : saisie de l'identifiant"},
+  {"action": "fill", "target": "#password", "args": {"text": "secret_sauce"}, "reason": "Étape 2 : saisie du mot de passe"},
+  {"action": "click", "target": "[data-test=\"login-button\"]", "reason": "Étape 3 : clic sur Connexion"},
+  {"action": "check_url", "args": {"contains": "inventory"}, "reason": "Résultat attendu : page des produits"},
+  {"action": "check_text", "args": {"text": "Produits"}, "reason": "Résultat attendu : titre Produits visible"},
+  {"action": "click", "target": "button:has-text(\"Ajouter au panier\")", "reason": "Étape 4 : ajout du premier produit"},
+  {"action": "check_text", "args": {"text": "Panier (1)"}, "reason": "Résultat attendu : compteur du panier à 1"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Connexion réussie et produit ajouté au panier"}, "reason": "Toutes les vérifications sont passées"}
+]

@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+      - name: Installer Chromium pour Playwright
+        run: python -m playwright install --with-deps chromium
+      - name: Lancer les tests (sans clé d'API, site de démo local)
+        run: pytest -v
+
+  robot:
+    name: Test Robot rejoué avec Selenium et Chrome
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+      - name: Installer Chromium pour Playwright
+        run: python -m playwright install --with-deps chromium
+      - name: Générer le test Robot avec la démo, puis le rejouer avec le vrai SeleniumLibrary
+        run: |
+          python -m http.server 8000 -d demo_site &
+          sleep 1
+          python -m agent cas_de_test/demo/CT-00_demo_locale.md --provider scripted --scenario cas_de_test/demo/scenario_CT-00.json
+          robot --variable BROWSER:headlesschrome --outputdir resultats-robot rapports/*/*.robot
+      - name: Garder le journal Robot (log.html, report.html)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: journal-robot
+          path: resultats-robot
