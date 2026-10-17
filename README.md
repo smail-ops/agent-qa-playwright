@@ -113,7 +113,8 @@ Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du proj
 - **Les commandes vocales** : bouton micro, puis « lance la démo », « lance le cas 2 », « arrête » ou « ouvre le rapport ».
 - **Le site à tester** : le champ sous le titre du cas remplace son adresse le temps d'une mission (autre site, recette, adresse IP). Le fichier du cas ne change pas.
 - **Écrire un cas de test** directement dans la page, le lancer, puis l'enregistrer dans `cas_de_test/`.
-- **Réglages** : votre prénom, pour qu'Alfred vous salue, et le choix de sa voix.
+- **La reconnaissance du maître** : au démarrage, Alfred se présente et salue son maître à voix haute, avec la voix du Mac. Au premier lancement sur un ordinateur, il demande ton prénom et l'enregistre dans le `.env` de cet ordinateur (`ALFRED_MAITRE`) : chaque installation connaît son maître. `--silencieux` coupe la salutation, `ALFRED_VOIX` choisit la voix.
+- **Réglages** : changer le prénom, et la voix utilisée dans la page.
 
 Sous le capot, le serveur n'utilise que la bibliothèque standard de Python et la page n'a pas de framework. Chaque événement de l'agent (observer, réfléchir, agir, étape terminée) est diffusé à la page en Server-Sent Events. Le serveur n'écoute que sur 127.0.0.1, refuse les requêtes venant d'autres sites et ne sert que les fichiers de ses propres missions.
 

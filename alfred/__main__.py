@@ -17,6 +17,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from . import maitre
 from .server import AlfredServer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -44,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8765, help="port d'Alfred (8765 par défaut)")
     parser.add_argument("--no-browser", action="store_true", help="ne pas ouvrir le navigateur au démarrage")
     parser.add_argument("--max-steps", type=int, default=20, help="nombre maximal d'actions par mission")
+    parser.add_argument("--silencieux", action="store_true", help="pas de salutation à voix haute au démarrage")
     args = parser.parse_args(argv)
 
     os.chdir(PROJECT_ROOT)  # cas_de_test/, rapports/ et .env sont lus depuis la racine du projet
@@ -63,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"Site de démo    : le port {DEMO_PORT} est déjà pris, je suppose que la démo tourne déjà.")
     print("Ctrl + C pour arrêter Alfred.")
+
+    # Alfred se présente et salue son maître, avec la voix du Mac : le navigateur ne peut pas parler avant un clic.
+    texte = maitre.salutation(maitre.nom_du_maitre())
+    voix = "salutation silencieuse (--silencieux)" if args.silencieux else maitre.saluer_a_voix_haute(texte)
+    print(f"Alfred          : « {texte} » ({voix})")
 
     if not args.no_browser:
         webbrowser.open(server.url)

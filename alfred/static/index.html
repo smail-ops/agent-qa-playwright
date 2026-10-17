@@ -198,6 +198,15 @@ main {
 .bouton-arret:hover { background: rgba(255, 102, 128, .1); }
 .indice { font-size: 13px; color: var(--brume); text-align: center; }
 .indice[data-ton="alerte"] { color: var(--ambre); }
+.presentation { display: grid; gap: 8px; justify-items: center; }
+.presentation label { font-size: 13px; color: var(--brume); }
+.presentation-ligne { display: flex; gap: 8px; }
+.presentation input {
+  width: 220px; background: var(--abysse-2); border: 1px solid var(--trait-fort); border-radius: 3px; padding: 8px 10px;
+}
+body.en-mission .presentation { justify-items: start; }
+.reglage-note { font-size: 12.5px; line-height: 1.45; color: var(--brume); margin: -6px 0 16px; }
+#reglage-message { margin: 8px 0 18px; min-height: 1.4em; }
 
 /* Pendant une mission, le cadran se range à gauche et laisse la place à la vue */
 body.en-mission .noyau { flex-direction: row; align-items: center; gap: 26px; margin: 0; }
@@ -396,6 +405,14 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
       <div class="parole">
         <p class="vous" id="vous" hidden></p>
         <p class="voix" id="voix" aria-live="polite"></p>
+        <div class="presentation" id="presentation" hidden>
+          <label for="presentation-nom">Votre prénom</label>
+          <div class="presentation-ligne">
+            <input id="presentation-nom" type="text" maxlength="40" autocomplete="given-name">
+            <button class="bouton-fichier" id="presentation-enregistrer" type="button">Enregistrer</button>
+          </div>
+          <p class="message" id="presentation-message" role="status"></p>
+        </div>
         <div class="commandes">
           <button class="bouton-principal" id="bouton-lancer" type="button">Lancer la mission</button>
           <button class="bouton-micro" id="bouton-micro" type="button" aria-pressed="false" aria-label="Parler à Alfred" title="Parler à Alfred" hidden>
@@ -440,6 +457,9 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     <label class="reglage">Votre prénom, pour qu'Alfred vous salue
       <input id="reglage-prenom" type="text" autocomplete="given-name" maxlength="40">
     </label>
+    <p class="reglage-note" id="reglage-ordinateur"></p>
+    <p><button class="bouton-fichier" id="reglage-enregistrer" type="button">Enregistrer le prénom</button></p>
+    <p class="message" id="reglage-message" role="status"></p>
     <label class="reglage">Voix d'Alfred
       <select id="reglage-voix"></select>
     </label>
@@ -535,10 +555,25 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     if (options.parler !== false) Parole.dire(texte, options);
   }
 
+  // La salutation vient du serveur : il connaît le maître de cet ordinateur (fichier .env).
   function salutation() {
-    const heure = new Date().getHours();
-    const prenom = memoire.lire("prenom").trim();
-    return `${heure < 5 || heure >= 18 ? "Bonsoir" : "Bonjour"}${prenom ? " " + prenom : ""}. Quel cas de test dois-je exécuter ?`;
+    return (etat.statut && etat.statut.salutation) || "Bonjour. Je suis Alfred, votre assistant de test.";
+  }
+
+  async function enregistrerMaitre(nom, message) {
+    try {
+      const r = await api("/api/maitre", { method: "POST", corps: { nom } });
+      etat.statut.maitre.nom = r.nom;
+      etat.statut.salutation = r.salutation;
+      message.dataset.ton = "ok";
+      message.textContent = "Enregistré sur cet ordinateur.";
+      $("presentation").hidden = true;
+      majRole();
+      annoncer(`Très bien, ${r.nom}. Je m'en souviendrai sur cet ordinateur.`, { important: true, interrompre: true });
+    } catch (erreur) {
+      message.dataset.ton = "alerte";
+      message.textContent = erreur.message;
+    }
   }
 
   // --- Le cadran ----------------------------------------------------------------------
@@ -1112,7 +1147,10 @@ URL : https://www.saucedemo.com/
       for (const v of Parole.liste) choix.append(new Option(`${v.name} (${v.lang})`, v.name, false, Parole.voix === v));
     },
     ouvrir() {
-      $("reglage-prenom").value = memoire.lire("prenom");
+      const maitre = etat.statut ? etat.statut.maitre : null;
+      $("reglage-prenom").value = maitre ? maitre.nom || maitre.suggestion || "" : "";
+      $("reglage-ordinateur").textContent = maitre ? `Ordinateur : ${maitre.ordinateur}. Le prénom est enregistré dans le fichier .env de cet ordinateur : chaque installation d'Alfred connaît son maître.` : "";
+      $("reglage-message").textContent = "";
       this.remplirVoix();
       $("fenetre-reglages").showModal();
     },
@@ -1125,8 +1163,8 @@ URL : https://www.saucedemo.com/
   }
 
   function majRole() {
-    const prenom = memoire.lire("prenom").trim();
-    $("marque-role").textContent = prenom ? `au service de ${prenom}` : "assistant de test";
+    const nom = etat.statut && etat.statut.maitre ? etat.statut.maitre.nom : null;
+    $("marque-role").textContent = nom ? `au service de ${nom}` : "assistant de test";
   }
 
   // --- Démarrage ----------------------------------------------------------------------
@@ -1144,7 +1182,13 @@ URL : https://www.saucedemo.com/
     });
     $("bouton-reglages").addEventListener("click", () => Reglages.ouvrir());
     $("reglages-fermer").addEventListener("click", () => $("fenetre-reglages").close());
-    $("reglage-prenom").addEventListener("input", (e) => { memoire.ecrire("prenom", e.target.value); majRole(); });
+    const surEntree = (champ, action) => champ.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); action(); } });
+    const depuisReglages = () => enregistrerMaitre($("reglage-prenom").value, $("reglage-message"));
+    const depuisAccueil = () => enregistrerMaitre($("presentation-nom").value, $("presentation-message"));
+    $("reglage-enregistrer").addEventListener("click", depuisReglages);
+    $("presentation-enregistrer").addEventListener("click", depuisAccueil);
+    surEntree($("reglage-prenom"), depuisReglages);
+    surEntree($("presentation-nom"), depuisAccueil);
     $("reglage-voix").addEventListener("change", (e) => { memoire.ecrire("voix-nom", e.target.value); Parole.choisir(e.target.value); });
     $("reglage-essai").addEventListener("click", () => Parole.dire(salutation(), { important: true, interrompre: true }));
     $("fichier-fermer").addEventListener("click", () => $("fenetre-fichier").close());
@@ -1172,7 +1216,12 @@ URL : https://www.saucedemo.com/
       Cadran.allumer();
       await chargerCas();
       changerEtat("pret");
+      majRole();
       annoncer(salutation(), { parler: false });
+      // Premier lancement sur cet ordinateur : Alfred demande le prénom de son maître.
+      const maitre = etat.statut.maitre;
+      $("presentation").hidden = Boolean(maitre.nom);
+      $("presentation-nom").value = maitre.suggestion || "";
       const enCours = etat.statut.mission;
       if (enCours && enCours.running) suivre(enCours.id);  // page rechargée pendant une mission
     } catch (erreur) {

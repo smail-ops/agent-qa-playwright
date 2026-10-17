@@ -9,9 +9,11 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
+from datetime import datetime
+
 from agent.actions import Action
 from agent.browser import Element
-from alfred import narration
+from alfred import maitre, narration
 from alfred.server import AlfredServer
 
 DEMO_DIR = Path(__file__).resolve().parent.parent / "cas_de_test" / "demo"
@@ -48,15 +50,16 @@ def test_libelles_des_verifications():
 
 
 @pytest.fixture
-def alfred(tmp_path, demo_url):
+def alfred(tmp_path, demo_url, monkeypatch):
     """Alfred avec un dossier de cas de test : la démo pointe vers le site de démo des tests."""
+    monkeypatch.delenv("ALFRED_MAITRE", raising=False)  # chaque test commence sans maître enregistré
     cases = tmp_path / "cas_de_test"
     (cases / "demo").mkdir(parents=True)
     text = (DEMO_DIR / "CT-00_demo_locale.md").read_text(encoding="utf-8")
     (cases / "demo" / "CT-00_demo_locale.md").write_text(text.replace("http://localhost:8000", demo_url), encoding="utf-8")
     shutil.copy(DEMO_DIR / "scenario_CT-00.json", cases / "demo")
     (cases / "CT-01_autre.md").write_text(f"# CT-01 Autre cas\nURL : {demo_url}/index.html\n", encoding="utf-8")
-    server = AlfredServer(("127.0.0.1", 0), cases, tmp_path / "rapports")
+    server = AlfredServer(("127.0.0.1", 0), cases, tmp_path / "rapports", env_path=tmp_path / ".env")
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
     server.shutdown()
@@ -222,7 +225,7 @@ def test_interface_mission_de_demo(alfred, pw_page):
     expect(pw_page.locator(".carte-cas")).to_have_count(2)
     expect(pw_page.locator('.carte-cas[aria-pressed="true"]')).to_contain_text("CT-00")
     expect(pw_page.locator('input[name="moteur"][value="scripted"]')).to_be_checked()
-    expect(pw_page.locator("#voix")).to_contain_text("Quel cas de test dois-je exécuter ?")
+    expect(pw_page.locator("#voix")).to_contain_text("Alfred, votre assistant de test")
 
     pw_page.fill("#option-pause", "0")
     pw_page.click("#bouton-lancer")
@@ -289,3 +292,74 @@ def test_interface_site_a_tester(alfred, pw_page, demo_url):
     pw_page.click("#url-retablir")
     expect(champ).to_have_value(f"{demo_url}/index.html")
     expect(pw_page.locator("#url-retablir")).to_be_hidden()
+
+
+
+# --- Reconnaissance du maître ----------------------------------------------------------
+
+
+def test_salutation():
+    soir, matin = datetime(2026, 10, 17, 20, 30), datetime(2026, 10, 17, 9, 0)
+    assert maitre.salutation("Smail", soir) == "Bonsoir Smail. Ici Alfred, votre assistant de test. Quel cas de test dois-je exécuter ?"
+    assert maitre.salutation(None, matin) == "Bonjour. Je suis Alfred, votre assistant de test. Comment dois-je vous appeler ?"
+
+
+def test_enregistrer_le_maitre(tmp_path, monkeypatch):
+    """Le prénom va dans le .env de cet ordinateur, sans toucher à la clé d'API."""
+    monkeypatch.delenv("ALFRED_MAITRE", raising=False)
+    env = tmp_path / ".env"
+    env.write_text("GEMINI_API_KEY=cle-de-test\nALFRED_MAITRE=Ancien\n", encoding="utf-8")
+    assert maitre.enregistrer("  Jean-Pierre  ", env) == "Jean-Pierre"
+    assert env.read_text(encoding="utf-8") == "GEMINI_API_KEY=cle-de-test\nALFRED_MAITRE=Jean-Pierre\n"
+    assert maitre.nom_du_maitre() == "Jean-Pierre"
+
+
+@pytest.mark.parametrize("nom", ["", "42", "Smail\nGEMINI_API_KEY=pirate", "<script>", "x" * 41, "Smail="])
+def test_prenom_refuse(tmp_path, nom):
+    with pytest.raises(ValueError, match="prénom"):
+        maitre.enregistrer(nom, tmp_path / ".env")
+    assert not (tmp_path / ".env").exists()
+
+
+def test_choix_de_la_voix_du_mac():
+    sortie = (
+        "Amélie              fr_CA    # Bonjour, je m’appelle Amélie.\n"
+        "Daniel              en_GB    # Hello! My name is Daniel.\n"
+        "Jacques             fr_FR    # Bonjour, je m’appelle Jacques.\n"
+        "Thomas (Enhanced)   fr_FR    # Bonjour, je m’appelle Thomas.\n"
+    )
+    assert maitre.choisir_voix(sortie) == "Thomas (Enhanced)"
+    assert maitre.choisir_voix(sortie.replace("Thomas (Enhanced)", "Audrey           ")) == "Jacques"
+    assert maitre.choisir_voix("Daniel              en_GB    # Hello!\n") is None
+
+
+def test_salutation_silencieuse(monkeypatch):
+    monkeypatch.setenv("ALFRED_VOIX", "off")
+    assert maitre.saluer_a_voix_haute("Bonjour") == "voix coupée (ALFRED_VOIX=off)"
+
+
+def test_api_du_maitre(alfred):
+    status, data = request(alfred, "GET", "/api/status")
+    assert data["maitre"]["nom"] is None and data["salutation"].endswith("Comment dois-je vous appeler ?")
+    assert data["maitre"]["ordinateur"]
+    status, data = request(alfred, "POST", "/api/maitre", {"nom": "Smail"})
+    assert status == 200 and data["nom"] == "Smail" and "Smail. Ici Alfred" in data["salutation"]
+    assert "ALFRED_MAITRE=Smail" in alfred.env_path.read_text(encoding="utf-8")
+    assert request(alfred, "GET", "/api/status")[1]["maitre"]["nom"] == "Smail"
+    assert request(alfred, "POST", "/api/maitre", {"nom": "Smail\nX=1"})[0] == 400
+
+
+def test_interface_premier_lancement(alfred, pw_page):
+    """Sans maître enregistré, Alfred demande le prénom, puis le retient pour cet ordinateur."""
+    pw_page.goto(alfred.url)
+    expect(pw_page.locator("#voix")).to_contain_text("Comment dois-je vous appeler ?")
+    expect(pw_page.locator("#presentation")).to_be_visible()
+    pw_page.fill("#presentation-nom", "Smail")
+    pw_page.click("#presentation-enregistrer")
+    expect(pw_page.locator("#marque-role")).to_have_text("au service de Smail")
+    expect(pw_page.locator("#voix")).to_contain_text("Très bien, Smail. Je m'en souviendrai sur cet ordinateur.")
+    expect(pw_page.locator("#presentation")).to_be_hidden()
+
+    pw_page.reload()  # au prochain lancement, Alfred le reconnaît
+    expect(pw_page.locator("#voix")).to_contain_text("Smail. Ici Alfred, votre assistant de test.")
+    expect(pw_page.locator("#presentation")).to_be_hidden()

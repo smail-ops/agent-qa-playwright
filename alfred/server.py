@@ -2,7 +2,8 @@
 
 Routes :
     GET  /                              la page d'Alfred
-    GET  /api/status                    moteurs disponibles (clés présentes ou non) et mission en cours
+    GET  /api/status                    moteurs disponibles, mission en cours, maître et salutation
+    POST /api/maitre                    enregistre le prénom du maître dans le .env de cet ordinateur
     GET  /api/cases                     cas de test du dossier cas_de_test/
     POST /api/cases                     enregistre un cas de test écrit dans la page
     POST /api/missions                  lance une mission
@@ -20,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -33,6 +35,7 @@ from agent.providers import (
 )
 from agent.testcase import TestCase, parse_test_case, slugify
 
+from . import maitre
 from .missions import MissionBusy, MissionManager
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -113,9 +116,11 @@ def providers_status() -> dict:
 class AlfredServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address=("127.0.0.1", 8765), cases_dir="cas_de_test", reports_dir="rapports", max_steps=20):
+    def __init__(self, address=("127.0.0.1", 8765), cases_dir="cas_de_test", reports_dir="rapports", max_steps=20,
+                 env_path=".env"):
         super().__init__(address, AlfredHandler)
         self.cases_dir = Path(cases_dir)
+        self.env_path = Path(env_path)  # le .env de cet ordinateur : clés d'API et prénom du maître
         self.missions = MissionManager(Path(reports_dir), max_steps)
         port = self.server_address[1]
         self.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -127,10 +132,13 @@ class AlfredServer(ThreadingHTTPServer):
 
     def status(self) -> dict:
         current = self.missions.current
+        nom = maitre.nom_du_maitre()
         return {
             "providers": providers_status(),
             "mission": current.summary() if current else None,
             "max_steps": self.missions.max_steps,
+            "maitre": {"nom": nom, "suggestion": maitre.suggestion(), "ordinateur": socket.gethostname()},
+            "salutation": maitre.salutation(nom),
         }
 
 
@@ -170,6 +178,8 @@ class AlfredHandler(BaseHTTPRequestHandler):
             return self._start_mission()
         if path == "/api/cases":
             return self._save_case()
+        if path == "/api/maitre":
+            return self._save_master()
         if match := re.fullmatch(rf"/api/missions/({MISSION_ID})/stop", path):
             return self._stop_mission(match.group(1))
         self._json(404, {"error": "Adresse inconnue."})
@@ -297,6 +307,15 @@ class AlfredHandler(BaseHTTPRequestHandler):
             return self._json(409, {"error": f"Le fichier {name} existe déjà dans cas_de_test : changez le titre."})
         path.write_text(text + "\n", encoding="utf-8")
         self._json(201, {"id": name})
+
+    # --- Maître -------------------------------------------------------------------
+
+    def _save_master(self):
+        try:
+            nom = maitre.enregistrer(self._body().get("nom", ""), self.server.env_path)
+        except (ValueError, TypeError, OSError) as exc:
+            return self._json(400, {"error": str(exc)})
+        self._json(200, {"nom": nom, "salutation": maitre.salutation(nom)})
 
     # --- Réponses ----------------------------------------------------------------
 
