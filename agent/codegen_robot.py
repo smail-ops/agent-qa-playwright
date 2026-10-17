@@ -16,11 +16,17 @@ Exemple de test produit :
         Wait Until Location Contains    inventory
         La page affiche    Products
 
-Les vérifications de texte passent par deux mots-clés écrits dans le fichier,
-« La page affiche » et « La page n'affiche pas ». Comme l'agent, ils lisent le
-texte visible de la page (innerText). « Wait Until Page Contains » de
-SeleniumLibrary compterait aussi le texte caché, par exemple un message
-d'erreur présent dans la page mais masqué : le test passerait à tort.
+Les vérifications de texte passent par des mots-clés écrits dans le fichier :
+« La page affiche », « La page n'affiche pas », « La page affiche dans l'ordre »
+et « La page affiche ce nombre de fois ». Comme l'agent, ils lisent le texte
+visible de la page (innerText). « Wait Until Page Contains » de SeleniumLibrary
+compterait aussi le texte caché, par exemple un message d'erreur présent dans
+la page mais masqué : le test passerait à tort.
+
+Les vérifications sur un élément (valeur d'un champ, option choisie, bouton
+grisé, case cochée) utilisent les mots-clés de SeleniumLibrary, dans
+« Wait Until Keyword Succeeds » : comme l'agent, le test laisse quelques
+secondes à la page pour atteindre l'état attendu.
 """
 
 from __future__ import annotations
@@ -77,6 +83,58 @@ Le texte visible ne contient pas
     Should Not Contain    ${visible}    ${texte}    msg=Le texte « ${texte} » est affiché alors qu'il devrait être absent.
     ...    values=False    ignore_case=True    strip_spaces=True    collapse_spaces=True
 """
+
+
+_ORDER = """La page affiche dans l'ordre
+    [Documentation]    Attend que les textes soient affichés dans cet ordre, par exemple après un tri.
+    ...    La casse et les espaces ne comptent pas.
+    [Arguments]    @{textes}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Les textes visibles se suivent    @{textes}
+
+Les textes visibles se suivent
+    [Arguments]    @{textes}
+    ${visible}=    Execute Javascript    return document.body.innerText
+    ${visible}=    Evaluate    " ".join($visible.split()).lower()
+    ${debut}=    Set Variable    ${0}
+    FOR    ${texte}    IN    @{textes}
+        ${cherche}=    Evaluate    " ".join($texte.split()).lower()
+        ${position}=    Evaluate    $visible.find($cherche, $debut)
+        Should Be True    $position >= 0    msg=Ordre non respecté : « ${texte} » n'est pas affiché à la place attendue.
+        ${debut}=    Evaluate    $position + len($cherche)
+    END
+"""
+
+_COUNT = """La page affiche ce nombre de fois
+    [Documentation]    Attend que le texte soit affiché exactement ce nombre de fois.
+    ...    La casse et les espaces ne comptent pas.
+    [Arguments]    ${texte}    ${nombre}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Le texte visible apparaît    ${texte}    ${nombre}
+
+Le texte visible apparaît
+    [Arguments]    ${texte}    ${nombre}
+    ${visible}=    Execute Javascript    return document.body.innerText
+    ${trouve}=    Evaluate    " ".join($visible.split()).lower().count(" ".join($texte.split()).lower())
+    Should Be Equal As Integers    ${trouve}    ${nombre}    msg=« ${texte} » est affiché ${trouve} fois au lieu de ${nombre}.    values=False
+"""
+
+# Vérification d'état -> mot-clé SeleniumLibrary (et ses arguments après le localisateur)
+_STATE_KEYWORDS = {
+    "enabled": ("Element Should Be Enabled",),
+    "disabled": ("Element Should Be Disabled",),
+}
+
+
+def _state_keyword(element: Element, state: str) -> tuple[str, ...]:
+    """Mot-clé qui vérifie l'état, puis les arguments qui suivent le localisateur."""
+    if state in _STATE_KEYWORDS:
+        return _STATE_KEYWORDS[state]
+    checked = state == "checked"
+    kind = (element.type or "").lower() if element.tag == "input" else ""
+    if kind == "checkbox":
+        return ("Checkbox Should Be Selected",) if checked else ("Checkbox Should Not Be Selected",)
+    if kind == "radio":  # Selenium lit la propriété checked : « true », ou rien
+        return ("Element Attribute Value Should Be", "checked", "true" if checked else "${None}")
+    return ("Element Attribute Value Should Be", "aria-checked", "true" if checked else "false")
 
 
 def robot_arg(value: str) -> str:
@@ -146,6 +204,7 @@ def generate_robot(run: RunResult) -> str:
         if not browser_open:  # le navigateur doit être ouvert avant toute autre action
             open_browser(run.case.url)
 
+        block = None  # mots-clés à ajouter au fichier pour cette vérification
         if action.name == "click":
             lines.append(_keyword("Click Element", robot_arg(robot_locator(result.element))))
         elif action.name == "fill":
@@ -164,11 +223,31 @@ def generate_robot(run: RunResult) -> str:
                 # Texte tel qu'il apparaît sur la page (casse exacte), plus lisible dans le test
                 lines.append(_keyword("La page affiche", robot_arg(result.value or args["text"])))
                 block = _SHOWS
-            if block not in keywords:
-                keywords.append(block)
         elif action.name == "check_url":
             keyword = "Wait Until Location Does Not Contain" if args.get("absent") else "Wait Until Location Contains"
             lines.append(_keyword(keyword, robot_arg(args["contains"])))
+        elif action.name == "check_order":
+            lines.append(_keyword("La page affiche dans l'ordre", *(robot_arg(text) for text in args["texts"])))
+            block = _ORDER
+        elif action.name == "check_count":
+            lines.append(_keyword("La page affiche ce nombre de fois", robot_arg(args["text"]), str(args["count"])))
+            block = _COUNT
+        elif action.name in ("check_value", "check_state"):
+            element = result.element
+            locator = robot_arg(robot_locator(element))
+            if action.name == "check_value":
+                keyword = {"select": "List Selection Should Be", "textarea": "Textarea Value Should Be"}.get(
+                    element.tag, "Textfield Value Should Be")
+                checking = (keyword, locator, robot_arg(args["value"]))
+            else:
+                keyword, *extra = _state_keyword(element, args["state"])
+                checking = (keyword, locator, *extra)
+            # Comme l'agent, le test laisse à la page le temps d'atteindre l'état attendu
+            lines.append(_keyword("Wait Until Keyword Succeeds", "${DELAI}", "200ms", *checking))
+        elif action.name == "check_visual":  # avis du modèle sur une capture : rien à rejouer sans IA
+            lines.append(SEP + "# À automatiser : vérification visuelle faite par l'IA : " + " ".join(args["expected"].split()))
+        if block is not None and block not in keywords:
+            keywords.append(block)
 
     body = "\n".join(lines) or _keyword("No Operation")
     code = _HEADER.format(title=robot_arg(run.case.title), name=robot_arg(run.case.title), body=body)

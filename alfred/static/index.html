@@ -35,7 +35,7 @@
 }
 body[data-etat="pass"] { --etat: var(--vert); }
 body[data-etat="fail"] { --etat: var(--rouge); }
-body[data-etat="bloque"], body[data-etat="erreur"] { --etat: var(--ambre); }
+body[data-etat="bloque"], body[data-etat="erreur"], body[data-etat="attente"] { --etat: var(--ambre); }
 body[data-etat="ecoute"] { --etat: var(--ivoire); }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -196,6 +196,16 @@ main {
 @keyframes ecoute { from { box-shadow: 0 0 0 0 rgba(243, 233, 216, .45); } to { box-shadow: 0 0 0 14px rgba(243, 233, 216, 0); } }
 .bouton-arret { background: none; border: 1px solid var(--rouge); color: var(--rouge); border-radius: 3px; padding: 11px 18px; font-weight: 500; }
 .bouton-arret:hover { background: rgba(255, 102, 128, .1); }
+/* Écrire à Alfred : la même conversation qu'à la voix */
+.dialogue { display: flex; gap: 8px; width: min(470px, 100%); }
+.dialogue input {
+  flex: 1; min-width: 0; background: var(--abysse-2); border: 1px solid var(--trait-fort); border-radius: 3px;
+  padding: 9px 12px; font-size: 14px; color: var(--glace);
+}
+.dialogue input::placeholder { color: var(--brume); }
+.dialogue button { flex: none; }
+.dialogue input:disabled, .dialogue button:disabled { opacity: .55; }
+.invisible { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .indice { font-size: 13px; color: var(--brume); text-align: center; }
 .indice[data-ton="alerte"] { color: var(--ambre); }
 .presentation { display: grid; gap: 8px; justify-items: center; }
@@ -262,6 +272,7 @@ body[data-etat="observe"] .anneau-rotatif { animation: rotation 9s linear infini
 body[data-etat="think"] .anneau-rotatif { animation: rotation 3.2s linear infinite; }
 body[data-etat="act"] .anneau-rotatif { animation: rotation 6s linear infinite reverse; }
 body[data-etat="ecoute"] .anneau-rotatif { animation: respiration 1.5s ease-in-out infinite; }
+body[data-etat="attente"] .anneau-rotatif { animation: respiration 2.4s ease-in-out infinite; }
 @keyframes rotation { to { transform: rotate(360deg); } }
 @keyframes respiration { 50% { transform: scale(1.05); opacity: .6; } }
 .cadran .mot { font: 600 34px var(--instrument); letter-spacing: .12em; fill: currentColor; }
@@ -288,6 +299,11 @@ body[data-etat="ecoute"] .anneau-rotatif { animation: respiration 1.5s ease-in-o
 .etape[data-type="verifie"] .etape-issue { color: var(--vert); }
 .etape[data-type="echec"] .etape-issue { color: var(--rouge); }
 .etape[data-type="erreur"] .etape-issue { color: var(--ambre); }
+.etape-memoire { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--holo); }
+.note-journal { font-size: 13.5px; line-height: 1.4; padding: 10px 6px 10px 42px; border-bottom: 1px solid var(--trait); color: var(--holo); }
+.note-journal[data-ton="alerte"] { color: var(--ambre); }
+.detail-memoire { font-size: 12.5px; line-height: 1.4; color: var(--holo); margin-top: 10px; }
+.verdict-diagnostic { font-size: 13.5px; line-height: 1.45; color: var(--ivoire); border-left: 2px solid var(--etat); padding-left: 10px; }
 
 .verdict { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--trait-fort); display: grid; gap: 8px; }
 .verdict-mot { font-size: 30px; font-weight: 600; line-height: 1.1; color: var(--etat); letter-spacing: .02em; }
@@ -311,6 +327,46 @@ dialog::backdrop { background: rgba(2, 7, 12, .72); }
 .fenetre-corps { padding: 18px; }
 dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 64px); font: 13px/1.55 var(--code); white-space: pre; }
 #fenetre-reglages { width: min(460px, 94vw); }
+
+/* Propositions d'Alfred : user stories et cas de test proposés par l'IA, à relire avant de les garder */
+#fenetre-propositions { width: min(880px, 94vw); }
+#fenetre-propositions .fenetre-corps { max-height: calc(86vh - 64px); overflow-y: auto; display: grid; gap: 14px; }
+#fenetre-propositions .reglage { margin-bottom: 0; }
+.onglets { display: flex; gap: 4px; border-bottom: 1px solid var(--trait); }
+.onglet { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; color: var(--brume); font-size: 14px; }
+.onglet[aria-selected="true"] { color: var(--glace); border-bottom-color: var(--holo); }
+.onglet:disabled { opacity: .55; }
+.prop-grille { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.prop-volet { display: grid; gap: 10px; }
+.prop-volet textarea {
+  width: 100%; min-height: 104px; resize: vertical; background: var(--abysse); border: 1px solid var(--trait-fort);
+  border-radius: 3px; padding: 10px; font: 14px/1.5 var(--instrument); color: var(--glace);
+}
+.prop-volet .reglage-note, .prop-actions .reglage-note { margin: 0; }
+.prop-moteur { margin: 0; padding: 0; border-top: 0; }
+.prop-option { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.prop-option input { width: 16px; height: 16px; accent-color: var(--holo); margin: 0; }
+.prop-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.prop-resultats { display: grid; gap: 12px; }
+.prop-resultats:empty { display: none; }
+.prop-bilan { font-size: 14px; color: var(--brume); }
+.prop-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.proposition { border: 1px solid var(--trait); border-radius: 3px; padding: 12px 14px; display: grid; gap: 8px; justify-items: start; }
+.proposition:has(input:checked) { border-color: var(--trait-fort); background: var(--holo-voile); }
+.proposition-tete { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; }
+.proposition-tete input { width: 16px; height: 16px; accent-color: var(--holo); margin: 0; flex: none; }
+.proposition-titre { font-weight: 600; font-size: 15px; }
+.priorite { font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--holo); }
+.priorite[data-niveau="haute"] { color: var(--ambre); }
+.priorite[data-niveau="basse"] { color: var(--brume); }
+.proposition-phrase { font-size: 14px; }
+.proposition details { width: 100%; }
+.proposition summary { cursor: pointer; font-size: 13px; color: var(--brume); }
+.gherkin {
+  margin: 8px 0 0; padding: 10px 12px; background: var(--abysse); border: 1px solid var(--trait); border-radius: 3px;
+  font: 12.5px/1.6 var(--code); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.detail .gherkin-ligne { font: 13px/1.5 var(--code); margin-top: 4px; }
 .reglage { display: grid; gap: 6px; margin-bottom: 16px; font-size: 14px; }
 .reglage input, .reglage select {
   background: var(--abysse); border: 1px solid var(--trait-fort); border-radius: 3px; padding: 8px 10px; width: 100%;
@@ -321,6 +377,7 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
   .journal { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--trait); }
 }
 @media (max-width: 760px) {
+  .prop-grille { grid-template-columns: 1fr; }
   .barre { padding: 0 16px; }
   .marque-role, .bouton-discret span, .moteur-etat span:last-child { display: none; }
   main { grid-template-columns: 1fr; }
@@ -364,6 +421,7 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     <div class="panneau-tete"><h2 id="titre-cas">Cas de test</h2><span class="compte" id="compte-cas"></span></div>
     <ul class="liste-cas" id="liste-cas"></ul>
     <button class="bouton-trait" id="bouton-ecrire" type="button">Écrire un cas de test</button>
+    <button class="bouton-trait" id="bouton-proposer" type="button">Proposer des user stories et des tests</button>
     <div class="detail" id="detail" hidden></div>
     <fieldset class="moteurs">
       <legend>Moteur de l'agent</legend>
@@ -377,6 +435,8 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     <div class="options">
       <label><input type="checkbox" id="option-fenetre"> Montrer la fenêtre du navigateur</label>
       <label>Pause entre deux actions <input type="number" id="option-pause" min="0" max="30" step="0.5" value="1.5"> s</label>
+      <label><input type="checkbox" id="option-sans-memoire"> Ignorer la mémoire (tout refaire avec l'IA)</label>
+      <label><input type="checkbox" id="option-vision"> Vision : le modèle voit aussi l'écran</label>
     </div>
   </section>
 
@@ -420,6 +480,11 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
           </button>
           <button class="bouton-arret" id="bouton-arret" type="button" hidden>Arrêter</button>
         </div>
+        <form class="dialogue" id="dialogue" autocomplete="off">
+          <label class="invisible" for="dialogue-texte">Écrire à Alfred</label>
+          <input id="dialogue-texte" type="text" maxlength="500" placeholder="Écrivez-moi : pourquoi le dernier test a échoué ?">
+          <button class="bouton-fichier" id="dialogue-envoyer" type="submit">Envoyer</button>
+        </form>
         <p class="indice" id="indice"></p>
       </div>
     </div>
@@ -467,6 +532,57 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
   </div>
 </dialog>
 
+<dialog id="fenetre-propositions" aria-labelledby="propositions-titre">
+  <div class="fenetre-tete">
+    <h2 id="propositions-titre">Propositions d'Alfred</h2>
+    <div><button class="bouton-fichier" id="propositions-fermer" type="button">Fermer</button></div>
+  </div>
+  <div class="fenetre-corps">
+    <div class="onglets" role="tablist" aria-label="Point de départ">
+      <button class="onglet" role="tab" id="onglet-site" aria-selected="true" aria-controls="volet-site" type="button">À partir d'un site</button>
+      <button class="onglet" role="tab" id="onglet-story" aria-selected="false" aria-controls="volet-story" type="button">À partir d'une user story</button>
+    </div>
+    <label class="reglage">Adresse du site
+      <input id="prop-url" type="url" spellcheck="false" autocomplete="off">
+    </label>
+    <div class="prop-volet" id="volet-site" role="tabpanel" aria-labelledby="onglet-site">
+      <div class="prop-grille">
+        <label class="reglage">Identifiant de test (facultatif)
+          <input id="prop-identifiant" type="text" spellcheck="false" autocomplete="off">
+        </label>
+        <label class="reglage">Mot de passe de test
+          <input id="prop-mot-de-passe" type="password" autocomplete="off">
+        </label>
+      </div>
+      <p class="reglage-note">Alfred parcourt quelques pages sans rien y modifier, puis fait une seule requête au modèle. Le compte de test sert uniquement à se connecter pendant l'analyse : le mot de passe n'est ni envoyé au modèle, ni enregistré.</p>
+    </div>
+    <div class="prop-volet" id="volet-story" role="tabpanel" aria-labelledby="onglet-story" hidden>
+      <label class="reglage">User story
+        <textarea id="prop-story" placeholder="En tant que client, je veux trier les produits par prix, afin de trouver le moins cher."></textarea>
+      </label>
+      <div class="prop-actions">
+        <button class="bouton-fichier" id="prop-dicter" type="button" aria-pressed="false" hidden>Dicter la user story</button>
+        <p class="reglage-note">Ajoutez si besoin ses critères d'acceptation : Alfred en tient compte.</p>
+      </div>
+    </div>
+    <fieldset class="moteurs prop-moteur">
+      <legend>Moteur</legend>
+      <div class="segments" role="radiogroup">
+        <label><input type="radio" name="prop-moteur" value="gemini"><span>Gemini</span></label>
+        <label><input type="radio" name="prop-moteur" value="claude"><span>Claude</span></label>
+        <label><input type="radio" name="prop-moteur" value="scripted"><span>Démo sans IA</span></label>
+      </div>
+      <p class="aide" id="prop-aide"></p>
+    </fieldset>
+    <label class="prop-option" id="prop-option-vision"><input type="checkbox" id="prop-vision"> Vision : le modèle voit aussi les pages</label>
+    <div class="prop-actions">
+      <button class="bouton-principal" id="prop-lancer" type="button">Analyser le site</button>
+      <p class="message" id="prop-message" role="status"></p>
+    </div>
+    <div class="prop-resultats" id="prop-resultats"></div>
+  </div>
+</dialog>
+
 <script>
 "use strict";
 (() => {
@@ -474,7 +590,7 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
   const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const PAUSES = { scripted: 1.5, gemini: 4, claude: 0 };  // la pause de 4 s ménage le quota gratuit de Gemini
   const MOTS = { pret: "Prêt", observe: "Observe", think: "Réfléchit", act: "Agit", ecoute: "Écoute",
-                 pass: "Réussi", fail: "Échec", bloque: "Bloqué", erreur: "Erreur" };
+                 attente: "Patiente", pass: "Réussi", fail: "Échec", bloque: "Bloqué", erreur: "Erreur" };
   const VERDICTS = { PASS: ["pass", "Réussi"], FAIL: ["fail", "Échec"], BLOQUE: ["bloque", "Bloqué"] };
   const NOMS_MOTEURS = { gemini: "Gemini", claude: "Claude", scripted: "Démo sans IA" };
 
@@ -482,6 +598,7 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     statut: null, cas: [], selection: null, moteur: "scripted", pauseTouchee: false,
     mission: null, source: null, fichiers: {}, debut: 0, chrono: null, maxEtapes: 20,
     etatAvantEcoute: "pret", reflexion: null,
+    historique: [], conversant: false,  // conversation libre : les derniers échanges, envoyés avec chaque phrase
   };
 
   // --- Petits outils ------------------------------------------------------------------
@@ -661,6 +778,7 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
       const titre = cas.code ? cas.title.slice(cas.code.length).trim() : cas.title;
       bouton.append(ligne, element("span", "carte-cas-titre", titre));
       if (cas.demo) bouton.append(element("span", "carte-cas-demo", "Démo sans IA disponible"));
+      if (cas.gherkin) bouton.append(element("span", "carte-cas-demo", "Scénario Gherkin"));
       bouton.addEventListener("click", () => choisirCas(cas));
       const item = element("li");
       item.append(bouton);
@@ -668,6 +786,8 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     }
     $("compte-cas").textContent = `${etat.cas.length} cas`;
   }
+
+  const ETAPE_GHERKIN = /^(Étant donn|Etant donn|Soit\b|Sachant\b|Quand\b|Lorsque?\b|Lorsqu|Alors\b|Donc\b|Et\b|Mais\b)/i;
 
   // Rendu simple du Markdown d'un cas de test, construit élément par élément (jamais d'innerHTML).
   function rendreTexteCas(texte, conteneur) {
@@ -679,6 +799,7 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
       const numero = ligne.match(/^\d+[.)]\s+(.*)/);
       const puce = ligne.match(/^[-*]\s+(.*)/);
       if (titre) { conteneur.append(element("h4", "", titre[1])); liste = null; }
+      else if (ETAPE_GHERKIN.test(ligne)) { conteneur.append(element("p", "gherkin-ligne", ligne)); liste = null; }
       else if (numero || puce) {
         const tag = numero ? "ol" : "ul";
         if (!liste || liste.tagName.toLowerCase() !== tag) { liste = element(tag); conteneur.append(liste); }
@@ -693,6 +814,7 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     detail.replaceChildren();
     detail.hidden = false;
     detail.append(element("h3", "", cas.title), champSite(cas));
+    if (cas.memory) detail.append(element("p", "detail-memoire", texteMemoire(cas.memory)));
     rendreTexteCas(cas.text, detail);
     for (const b of $("liste-cas").querySelectorAll(".carte-cas")) b.setAttribute("aria-pressed", String(b.dataset.id === cas.id));
     ajusterMoteur();
@@ -716,6 +838,13 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     retablir.addEventListener("click", () => { saisie.value = cas.url; majSite(); saisie.focus(); });
     bloc.append(etiquette, saisie, note, retablir);
     return bloc;
+  }
+
+  // « Parcours en mémoire depuis le 17/10 à 17 h 30 » : la prochaine mission avec Gemini ou Claude se fera sans IA.
+  function texteMemoire(m) {
+    const date = new Date(m.saved_at);
+    const quand = isNaN(date) ? "" : ` depuis le ${date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} à ${date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+    return `Parcours en mémoire${quand} (${m.steps} étape${m.steps > 1 ? "s" : ""}) : avec Gemini ou Claude, il sera rejoué sans appel au modèle.`;
   }
 
   function urlValide() {
@@ -750,7 +879,7 @@ URL : https://www.saucedemo.com/
 - La page « Products » s'affiche
 `;
 
-  function ouvrirEditeur() {
+  function ouvrirEditeur(texte = "") {
     etat.selection = { id: null, custom: true, demo: false };
     for (const b of $("liste-cas").querySelectorAll(".carte-cas")) b.setAttribute("aria-pressed", "false");
     const detail = $("detail");
@@ -762,7 +891,8 @@ URL : https://www.saucedemo.com/
     const zone = element("textarea");
     zone.id = "editeur-texte";
     zone.spellcheck = false;
-    zone.value = memoire.lire("brouillon") || MODELE;
+    zone.value = texte || memoire.lire("brouillon") || MODELE;
+    if (texte) memoire.ecrire("brouillon", texte);
     zone.addEventListener("input", () => memoire.ecrire("brouillon", zone.value));
     const actions = element("div", "editeur-actions");
     const enregistrer = element("button", "bouton-fichier", "Enregistrer dans cas_de_test");
@@ -836,7 +966,7 @@ URL : https://www.saucedemo.com/
     $("bouton-lancer").disabled = !peutLancer();
     $("bouton-lancer").hidden = enCours;
     $("bouton-arret").hidden = !enCours;
-    for (const b of document.querySelectorAll(".carte-cas, #bouton-ecrire, input[name='moteur'], #option-fenetre, #option-pause, #url-mission, #url-retablir")) {
+    for (const b of document.querySelectorAll(".carte-cas, #bouton-ecrire, #bouton-proposer, input[name='moteur'], #option-fenetre, #option-pause, #option-sans-memoire, #option-vision, #url-mission, #url-retablir")) {
       if (b.name === "moteur" && b.value === "scripted" && !(etat.selection && etat.selection.demo)) continue;
       b.disabled = enCours;
     }
@@ -845,8 +975,8 @@ URL : https://www.saucedemo.com/
     indice.dataset.ton = "";
     if (enCours) indice.textContent = "Vous pouvez arrêter la mission à tout moment.";
     else if (etat.selection && !peutLancer()) { indice.dataset.ton = "alerte"; indice.textContent = raisonBlocage(); }
-    else indice.textContent = Ecoute.disponible ? `${raccourci} lance la mission. Vous pouvez aussi me parler : « lance la démo ».`
-      : `${raccourci} lance la mission.`;
+    else indice.textContent = Ecoute.disponible ? `${raccourci} lance la mission. Parlez-moi librement, au micro ou par écrit.`
+      : `${raccourci} lance la mission. Écrivez-moi librement, par exemple : quels tests ont échoué aujourd'hui ?`;
   }
 
   // --- Missions -----------------------------------------------------------------------
@@ -856,7 +986,8 @@ URL : https://www.saucedemo.com/
       else annoncer(raisonBlocage(), { important: true });
       return;
     }
-    const corps = { provider: etat.moteur, headed: $("option-fenetre").checked, pause: parseFloat($("option-pause").value) || 0 };
+    const corps = { provider: etat.moteur, headed: $("option-fenetre").checked, pause: parseFloat($("option-pause").value) || 0,
+                    memoire: !$("option-sans-memoire").checked, vision: $("option-vision").checked };
     if (etat.selection.custom) corps.markdown = $("editeur-texte").value;
     else {
       corps.case = etat.selection.id;
@@ -903,6 +1034,10 @@ URL : https://www.saucedemo.com/
     recu("start", surDebut);
     recu("phase", surPhase);
     recu("step", surEtape);
+    recu("wait", surAttente);
+    recu("memory", surMemoire);
+    recu("heal", surReparation);
+    recu("analysis", surAnalyse);
     recu("done", (d) => { surFin(d); source.close(); });
     recu("fault", (d) => { surPanne(d); source.close(); });
     source.onerror = () => {
@@ -925,7 +1060,57 @@ URL : https://www.saucedemo.com/
     annoncer(d.say, { important: true, parler: recent(d) });
   }
 
+  // Quota par minute atteint : l'agent patiente le temps indiqué par l'API, avec un compte à rebours.
+  function surAttente(d) {
+    clearTimeout(etat.reflexion);
+    changerEtat("attente");
+    annoncer(d.say, { important: true, parler: recent(d) });
+    let reste = Math.round(d.seconds - (Date.now() / 1000 - d.t));
+    const indice = $("indice");
+    clearInterval(etat.compteARebours);
+    const maj = () => {
+      indice.dataset.ton = "alerte";
+      indice.textContent = reste > 0 ? `Reprise dans ${reste} s (essai ${d.attempt} sur ${d.max_attempts}).` : "Reprise…";
+      reste -= 1;
+    };
+    maj();
+    etat.compteARebours = setInterval(maj, 1000);
+  }
+
+  // Parcours déjà réussi : Alfred le rejoue sans le modèle.
+  function surMemoire(d) {
+    ajouterNote(`Parcours connu (${d.steps} étape${d.steps > 1 ? "s" : ""}) : rejoué depuis la mémoire, sans IA.`);
+    annoncer(d.say, { important: true, parler: recent(d) });
+  }
+
+  // Le site a changé : le modèle reprend la main à cette étape (auto-réparation).
+  function surReparation(d) {
+    ajouterNote(`Étape ${d.number} : ${d.reason}. Le modèle prend le relais pour réparer le parcours.`, "alerte");
+    annoncer(d.say, { important: true, parler: recent(d) });
+  }
+
+  // Test en échec : le modèle rédige son diagnostic, Alfred le dit.
+  function surAnalyse(d) {
+    changerEtat("think");
+    ajouterNote("Analyse de l'échec et rédaction de la fiche d'anomalie.");
+    annoncer(d.say, { important: true, parler: recent(d) });
+  }
+
+  function ajouterNote(texte, ton = "") {
+    const note = element("li", "note-journal", texte);
+    note.dataset.ton = ton;
+    $("etapes").append(note);
+  }
+
+  function finAttente() {
+    if (!etat.compteARebours) return;
+    clearInterval(etat.compteARebours);
+    etat.compteARebours = null;
+    majBoutons();
+  }
+
   function surPhase(d) {
+    finAttente();
     clearTimeout(etat.reflexion);
     changerEtat(d.phase);
     Cadran.courant(d.number);
@@ -959,6 +1144,7 @@ URL : https://www.saucedemo.com/
     bouton.type = "button";
     const corps = element("span", "etape-corps");
     corps.append(element("span", "etape-libelle", d.label));
+    if (d.memory) corps.prepend(element("span", "etape-memoire", "Mémoire"));
     if (d.reason) {
       const raison = element("span", "etape-raison", d.reason);
       raison.title = d.reason;
@@ -996,6 +1182,7 @@ URL : https://www.saucedemo.com/
   }
 
   function terminer() {
+    finAttente();
     clearInterval(etat.chrono);
     clearTimeout(etat.reflexion);
     for (const c of $("cases").querySelectorAll(".courant")) c.classList.remove("courant");
@@ -1014,10 +1201,15 @@ URL : https://www.saucedemo.com/
     verdict.hidden = false;
     const chiffres = [`${d.steps} actions`, `${d.checks_ok} vérification${d.checks_ok > 1 ? "s" : ""} réussie${d.checks_ok > 1 ? "s" : ""}`];
     if (d.checks_failed) chiffres.push(`${d.checks_failed} en échec`);
+    if (typeof d.model_calls === "number") chiffres.push(`${d.model_calls} appel${d.model_calls > 1 ? "s" : ""} au modèle`);
     verdict.append(element("p", "verdict-mot", mot), element("p", "verdict-resume", d.summary || "Aucune conclusion."),
                    element("p", "verdict-chiffres", chiffres.join(", ")));
+    if (d.memory) verdict.append(element("p", "detail-memoire", d.memory));
+    if (d.diagnosis) verdict.append(element("p", "verdict-diagnostic",
+      `Avis de l'IA : ${d.diagnosis.nature.toLowerCase()}, gravité ${d.diagnosis.gravite.toLowerCase()}. ${d.diagnosis.titre}`));
     const fichiers = element("div", "verdict-fichiers");
-    for (const [nom, libelle] of [["rapport", "Lire le rapport"], ["pytest", "Test pytest"], ["robot", "Test Robot"]]) {
+    for (const [nom, libelle] of [["anomalie", "Fiche d'anomalie"], ["rapport", "Lire le rapport"], ["pytest", "Test pytest"],
+                                  ["robot", "Test Robot"], ["gherkin", "Scénario Gherkin"], ["robot_bdd", "Gherkin pour Robot"]]) {
       if (!d.files[nom]) continue;
       const bouton = element("button", "bouton-fichier", libelle);
       bouton.type = "button";
@@ -1041,10 +1233,14 @@ URL : https://www.saucedemo.com/
   }
 
   // --- Fichiers générés ---------------------------------------------------------------
-  const TITRES_FICHIERS = { rapport: "Rapport de la mission", pytest: "Test pytest généré", robot: "Test Robot Framework généré" };
+  const TITRES_FICHIERS = {
+    rapport: "Rapport de la mission", pytest: "Test pytest généré", robot: "Test Robot Framework généré",
+    gherkin: "Scénario Gherkin généré", robot_bdd: "Scénario Gherkin, exécutable avec Robot Framework",
+    anomalie: "Fiche d'anomalie",
+  };
 
-  async function ouvrirFichier(nom) {
-    const url = etat.fichiers[nom];
+  // url : un fichier d'une exécution passée, trouvé par Alfred (« ouvre la fiche d'anomalie de CT-14 »)
+  async function ouvrirFichier(nom, url = etat.fichiers[nom], titreCas = "") {
     if (!url) return annoncer("Il n'y a pas encore de fichier : lancez d'abord une mission.", { important: true });
     let texte;
     try {
@@ -1052,7 +1248,7 @@ URL : https://www.saucedemo.com/
       if (!reponse.ok) throw new Error();
       texte = await reponse.text();
     } catch { return annoncer("Je n'arrive pas à ouvrir ce fichier.", { important: true }); }
-    $("fichier-titre").textContent = TITRES_FICHIERS[nom];
+    $("fichier-titre").textContent = titreCas ? `${TITRES_FICHIERS[nom]} : ${titreCas}` : TITRES_FICHIERS[nom];
     $("fichier-contenu").textContent = texte;
     $("fichier-copier").textContent = "Copier";
     $("fenetre-fichier").showModal();
@@ -1061,25 +1257,46 @@ URL : https://www.saucedemo.com/
   // --- Commandes vocales ----------------------------------------------------------------
   const NOMBRES = { zero: 0, un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10 };
 
+  // Les commandes simples sont comprises ici, sans IA. Une question ou une phrase libre part au modèle (converser).
   function comprendre(texte) {
-    const t = texte.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[-'’,.!?;:]/g, " ").replace(/\s+/g, " ").trim();
+    const t = texte.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[-'’,.!?;:]/g, " ").replace(/\s+/g, " ").trim()
+      .replace(/^alfred /, "");
+    const question = /\?\s*$/.test(texte.trim()) || /\b(pourquoi|comment|combien|quand|quel|quelle|quels|quelles|est ce que|qu est ce|lequel|laquelle)\b/.test(t);
+    if (question) return { type: "inconnu" };
     if (/\b(arrete|arreter|stop|annule|annuler|interromps)\b/.test(t)) return { type: "arreter" };
+    if (/^(vas y|go|c est parti|on y va|allez y|lance|lance le|lance la mission|lance le test|demarre)$/.test(t)) return { type: "lancer_courant" };
+    if (/\b(ouvre|ouvrir|montre|affiche|lis)\b/.test(t)) {  // « ouvre le rapport du test 3 » : un fichier, pas un lancement
+      const fichier = fichierDemande(t);
+      if (fichier) return { type: "ouvrir", fichier };
+    }
+    // Une phrase longue (« lance le cas 3 sur le site de recette ») dit plus qu'une commande : elle part au modèle
+    const court = t.split(" ").length <= 6;
+    if (!court) return { type: "inconnu" };
     if (/\bdemo(nstration)?\b/.test(t)) return { type: "lancer", code: "CT-00", demo: true };
     const cas = t.match(/\b(?:c ?t|cas|test)\s*(?:numero\s*|n\s*)?(\d{1,3}|zero|une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix)\b/);
     if (cas) {
       const n = /^\d+$/.test(cas[1]) ? parseInt(cas[1], 10) : NOMBRES[cas[1]];
       return { type: "lancer", code: "CT-" + String(n).padStart(2, "0") };
     }
-    if (/\brapport\b/.test(t)) return { type: "ouvrir", fichier: "rapport" };
-    if (/\brobot\b/.test(t)) return { type: "ouvrir", fichier: "robot" };
-    if (/\b(pytest|script)\b/.test(t)) return { type: "ouvrir", fichier: "pytest" };
-    if (/\b(bonjour|bonsoir|salut|hello|coucou)\b/.test(t)) return { type: "saluer" };
-    if (/\b(aide|aider|commandes)\b/.test(t) || /que sais tu faire/.test(t)) return { type: "aide" };
+    const fichier = fichierDemande(t);
+    if (fichier) return { type: "ouvrir", fichier };
+    if (/^(bonjour|bonsoir|salut|hello|coucou)( alfred)?$/.test(t)) return { type: "saluer" };
+    if (/^(aide|aide moi|les commandes|que sais tu faire|que peux tu faire)$/.test(t)) return { type: "aide" };
     return { type: "inconnu" };
   }
 
-  function executer(commande) {
+  function fichierDemande(t) {
+    if (/\b(anomalie|bug|fiche)\b/.test(t)) return "anomalie";
+    if (/\brapport\b/.test(t)) return "rapport";
+    if (/\b(gherkin|guerkin|gherkine|scenario|bdd)\b/.test(t)) return "gherkin";
+    if (/\brobot\b/.test(t)) return "robot";
+    if (/\b(pytest|script)\b/.test(t)) return "pytest";
+    return null;
+  }
+
+  function executer(commande, texte = "") {
     if (commande.type === "arreter") return arreter();
+    if (commande.type === "lancer_courant") return lancer();
     if (commande.type === "lancer") {
       const cas = etat.cas.find((c) => c.code === commande.code);
       if (!cas) return annoncer(`Je ne trouve pas le cas ${commande.code}.`, { important: true });
@@ -1090,15 +1307,70 @@ URL : https://www.saucedemo.com/
     }
     if (commande.type === "ouvrir") return ouvrirFichier(commande.fichier);
     if (commande.type === "saluer") return annoncer(salutation(), { important: true });
-    if (commande.type === "aide") return annoncer("Dites par exemple : lance la démo, lance le cas 1, arrête, ou ouvre le rapport.", { important: true });
+    if (commande.type === "aide") return annoncer("Dites par exemple : lance la démo, lance le cas 1, arrête, ou ouvre le rapport. Vous pouvez aussi me parler librement : pourquoi le dernier test a échoué ? Ou dictez-moi un cas de test.", { important: true });
+    if (texte) return converser(texte);
     return annoncer("Je n'ai pas compris. Dites par exemple : lance la démo, ou lance le cas 1.", { important: true });
+  }
+
+  // --- Conversation libre : la phrase part au modèle avec le contexte, la réponse revient avec une action contrôlée --
+  async function converser(texte) {
+    if (etat.conversant) return annoncer("Un instant, je vous réponds.", { important: true });
+    const enMission = Boolean(etat.mission && !etat.mission.fini);
+    const avant = document.body.dataset.etat;
+    etat.conversant = true;
+    $("dialogue-texte").disabled = $("dialogue-envoyer").disabled = true;
+    if (!enMission) changerEtat("think");
+    annoncer("Je réfléchis…", { parler: false });
+    try {
+      const r = await api("/api/conversation", { method: "POST", corps: {
+        texte, historique: etat.historique.slice(-6), provider: etat.moteur,
+        selection: etat.selection && etat.selection.id ? etat.selection.id : null, fichiers: Object.keys(etat.fichiers || {}) } });
+      etat.historique.push({ role: "testeur", texte }, { role: "alfred", texte: r.reponse });
+      if (!enMission && document.body.dataset.etat === "think") changerEtat(avant);
+      // Pour un lancement, Alfred annonce déjà le départ de la mission : la réponse s'affiche sans être lue deux fois
+      annoncer(r.reponse, { important: true, interrompre: true, parler: r.action.type !== "lancer" });
+      executerAction(r.action);
+    } catch (erreur) {
+      if (!enMission && document.body.dataset.etat === "think") changerEtat(avant);
+      annoncer(erreur.message, { important: true });
+    } finally {
+      etat.conversant = false;
+      $("dialogue-texte").disabled = $("dialogue-envoyer").disabled = false;
+    }
+  }
+
+  function executerAction(action) {
+    if (!action || action.type === "aucune") return;
+    if (action.type === "arreter") return arreter();
+    if (action.type === "ouvrir") return ouvrirFichier(action.fichier, action.url, action.titre);
+    if (action.type === "lancer" || action.type === "selectionner") {
+      const cas = etat.cas.find((c) => c.id === action.cas);
+      if (!cas) return;
+      if (action.type === "lancer" && etat.mission && !etat.mission.fini) return annoncer("Une mission est déjà en cours.", { important: true });
+      choisirCas(cas);
+      if (action.url) { $("url-mission").value = action.url; majSite(); }
+      if (action.vision) $("option-vision").checked = true;
+      return action.type === "lancer" ? lancer() : undefined;
+    }
+    if (action.type === "rediger") {  // le cas dicté s'affiche ; « vas-y » le lance
+      ouvrirEditeur(action.markdown);
+      return;
+    }
+    if (action.type === "proposer") {
+      Propositions.ouvrir();
+      $("prop-url").value = action.url;
+      Propositions.choisirOnglet("site");
+      Propositions.majMoteur();
+      return Propositions.analyser();
+    }
   }
 
   const Ecoute = {
     Reconnaissance: window.SpeechRecognition || window.webkitSpeechRecognition,
     get disponible() { return Boolean(this.Reconnaissance); },
     session: null,
-    basculer() {
+    // Par défaut, la phrase entendue est une commande. Pour une dictée, surTexte reçoit le texte et bouton s'allume.
+    basculer(surTexte = null, bouton = $("bouton-micro")) {
       if (this.session) { this.session.abort(); return; }
       const session = new this.Reconnaissance();
       session.lang = "fr-FR";
@@ -1106,15 +1378,16 @@ URL : https://www.saucedemo.com/
       session.maxAlternatives = 1;
       this.session = session;
       Parole.taire();
-      $("bouton-micro").setAttribute("aria-pressed", "true");
+      bouton.setAttribute("aria-pressed", "true");
       const enMission = etat.mission && !etat.mission.fini;
       if (!enMission) { etat.etatAvantEcoute = document.body.dataset.etat; changerEtat("ecoute"); }
       session.onresult = (e) => {
         const texte = e.results[0][0].transcript;
+        if (!enMission) changerEtat(etat.etatAvantEcoute);
+        if (surTexte) return surTexte(texte);
         $("vous").hidden = false;
         $("vous").textContent = `Vous : « ${texte} »`;
-        if (!enMission) changerEtat(etat.etatAvantEcoute);
-        executer(comprendre(texte));
+        executer(comprendre(texte), texte);
       };
       session.onerror = (e) => {
         const messages = {
@@ -1126,10 +1399,210 @@ URL : https://www.saucedemo.com/
       };
       session.onend = () => {
         this.session = null;
-        $("bouton-micro").setAttribute("aria-pressed", "false");
+        bouton.setAttribute("aria-pressed", "false");
         if (!enMission && document.body.dataset.etat === "ecoute") changerEtat(etat.etatAvantEcoute);
       };
       session.start();
+    },
+  };
+
+  // --- Propositions : user stories (Gherkin) et cas de test proposés par l'IA ----------------
+  const Propositions = {
+    onglet: "site", moteur: "gemini", occupe: false, url: "", analyse: null, stories: [], cas: [],
+    fenetre() { return $("fenetre-propositions"); },
+    local(url) {
+      try { return ["localhost", "127.0.0.1"].includes(new URL(url).hostname); } catch { return false; }
+    },
+    ouvrir() {
+      const adresse = (etat.selection && etat.selection.url) || memoire.lire("prop-url") || "https://www.saucedemo.com/";
+      if (!this.url) $("prop-url").value = adresse;
+      if (etat.moteur !== "scripted") this.moteur = etat.moteur;
+      else this.moteur = moteurPret("gemini") ? "gemini" : moteurPret("claude") ? "claude" : "scripted";
+      $("prop-vision").checked = $("option-vision").checked;
+      $("prop-dicter").hidden = !Ecoute.disponible;
+      this.majMoteur();
+      this.fenetre().showModal();
+      $("prop-url").focus();
+    },
+    choisirOnglet(nom) {
+      this.onglet = nom;
+      for (const [cle, onglet, volet] of [["site", "onglet-site", "volet-site"], ["story", "onglet-story", "volet-story"]]) {
+        $(onglet).setAttribute("aria-selected", String(cle === nom));
+        $(volet).hidden = cle !== nom;
+      }
+      $("prop-option-vision").hidden = nom !== "site";
+      $("prop-lancer").textContent = nom === "site" ? "Analyser le site" : "Proposer des cas de test";
+      if (nom === "story") $("prop-story").focus();
+    },
+    // La démo sans IA rejoue des réponses enregistrées pour le site de démo local : ailleurs, elle n'a pas de sens.
+    majMoteur(nouveau) {
+      if (nouveau) this.moteur = nouveau;
+      const local = this.local($("prop-url").value.trim());
+      if (this.moteur === "scripted" && !local) this.moteur = moteurPret("claude") && !moteurPret("gemini") ? "claude" : "gemini";
+      for (const radio of document.querySelectorAll('input[name="prop-moteur"]')) {
+        radio.checked = radio.value === this.moteur;
+        radio.disabled = this.occupe || (radio.value === "scripted" && !local);
+      }
+      const aide = $("prop-aide");
+      const infos = etat.statut ? etat.statut.providers[this.moteur] : null;
+      aide.dataset.ton = "";
+      if (this.moteur === "scripted") aide.textContent = "Réponses enregistrées pour le site de démo : aucune clé d'API nécessaire.";
+      else if (infos && !infos.ready) { aide.dataset.ton = "alerte"; aide.textContent = infos.hint; }
+      else aide.textContent = infos ? `Modèle : ${infos.model}` : "";
+    },
+    message(texte, ton = "") { $("prop-message").dataset.ton = ton; $("prop-message").textContent = texte; },
+    occuper(oui, texte = "") {
+      this.occupe = oui;
+      for (const champ of this.fenetre().querySelectorAll("input, textarea, button")) {
+        if (champ.id !== "propositions-fermer") champ.disabled = oui;
+      }
+      this.majMoteur();
+      if (oui) { this.message(texte); changerEtat("think"); } else if (document.body.dataset.etat === "think") changerEtat("pret");
+    },
+    adresse() {
+      const url = $("prop-url").value.trim();
+      if (!/^https?:\/\/[^\s/?#]+\S*$/i.test(url)) throw new Error("L'adresse du site doit commencer par http:// ou https://.");
+      memoire.ecrire("prop-url", url);
+      return url;
+    },
+    lancer() { return this.onglet === "site" ? this.analyser() : this.proposerCas({ texte: $("prop-story").value }); },
+    async analyser() {
+      if (this.occupe) return;
+      let url;
+      try { url = this.adresse(); } catch (erreur) { return this.message(erreur.message, "alerte"); }
+      this.occuper(true, "J'analyse le site : quelques pages, sans rien y modifier. Cela prend quelques secondes.");
+      annoncer("J'analyse le site.", { important: true, interrompre: true });
+      const corps = { url, provider: this.moteur, vision: $("prop-vision").checked,
+                      identifiant: $("prop-identifiant").value.trim(), mot_de_passe: $("prop-mot-de-passe").value };
+      try {
+        const r = await api("/api/propositions/stories", { method: "POST", corps });
+        Object.assign(this, { url, analyse: r.analyse, stories: r.stories, cas: [] });
+        this.message("");
+        this.afficherStories();
+        annoncer(r.say, { important: true });
+      } catch (erreur) {
+        this.message(erreur.message, "alerte");
+        annoncer(erreur.message, { important: true });
+      } finally {
+        $("prop-mot-de-passe").value = "";  // le mot de passe ne reste pas dans la page
+        this.occuper(false);
+      }
+    },
+    async proposerCas(source, titre = "") {
+      if (this.occupe) return;
+      let url;
+      try { url = this.adresse(); } catch (erreur) { return this.message(erreur.message, "alerte"); }
+      this.occuper(true, titre ? `Je rédige les cas de test de « ${titre} ».` : "Je rédige les cas de test de cette user story.");
+      annoncer("Je rédige les cas de test.", { important: true, interrompre: true });
+      try {
+        const r = await api("/api/propositions/cas", { method: "POST", corps: { url, provider: this.moteur, ...source } });
+        Object.assign(this, { url, cas: r.cas });
+        this.message("");
+        this.afficherCas(titre);
+        annoncer(r.say, { important: true });
+      } catch (erreur) {
+        this.message(erreur.message, "alerte");
+        annoncer(erreur.message, { important: true });
+      } finally { this.occuper(false); }
+    },
+    gherkin(story) {
+      return story.criteres.map((c) => [`Scénario: ${c.scenario}`, ...c.etapes.map((e) => `  ${e}`)].join("\n")).join("\n\n");
+    },
+    apercuCas(c) {
+      const lignes = [];
+      if (c.preconditions) lignes.push("Préconditions", c.preconditions, "");
+      lignes.push("Étapes", ...c.etapes.map((e, i) => `${i + 1}. ${e}`), "", "Résultats attendus", ...c.resultats.map((r) => `- ${r}`));
+      return lignes.join("\n");
+    },
+    // Une proposition : case à cocher, titre, puis le détail dépliable
+    carte(titre, contenu) {
+      const item = element("li", "proposition");
+      const tete = element("label", "proposition-tete");
+      const boite = element("input");
+      boite.type = "checkbox";
+      boite.checked = true;
+      tete.append(boite, element("span", "proposition-titre", titre));
+      item.append(tete, ...contenu);
+      item.coche = boite;
+      return item;
+    },
+    afficherStories() {
+      const zone = $("prop-resultats");
+      zone.replaceChildren();
+      const a = this.analyse;
+      const pages = a.pages.map((p) => p.title || p.url).join(", ");
+      zone.append(element("p", "prop-bilan", `${a.pages.length} page${a.pages.length > 1 ? "s" : ""} analysée${a.pages.length > 1 ? "s" : ""} : ${pages}.${a.login ? " " + a.login : ""}`));
+      const liste = element("ul", "prop-liste");
+      const cartes = this.stories.map((s) => {
+        const priorite = element("span", "priorite", `Priorité ${s.priorite}`);
+        priorite.dataset.niveau = s.priorite;
+        const details = element("details");
+        details.append(element("summary", "", `${s.criteres.length} critère${s.criteres.length > 1 ? "s" : ""} d'acceptation en Gherkin`),
+                       element("pre", "gherkin", this.gherkin(s)));
+        const bouton = element("button", "bouton-fichier", "Proposer des cas de test");
+        bouton.type = "button";
+        bouton.addEventListener("click", () => this.proposerCas({ story: s }, s.titre));
+        const carte = this.carte(s.titre, [element("p", "proposition-phrase", s.phrase), details, bouton]);
+        carte.querySelector(".proposition-tete").append(priorite);
+        liste.append(carte);
+        return carte;
+      });
+      zone.append(liste, this.barreEnregistrer("Enregistrer la sélection en Gherkin",
+        "Chaque user story devient un fichier .feature dans cas_de_test : ses scénarios se lancent comme des cas de test.",
+        () => ({ stories: this.stories.filter((_, i) => cartes[i].coche.checked) })));
+      this.montrer(zone);
+    },
+    // Fait défiler la fenêtre jusqu'aux propositions (et non la page derrière elle)
+    montrer(zone) {
+      const corps = zone.closest(".fenetre-corps");
+      corps.scrollTo({ top: Math.max(0, zone.offsetTop - corps.offsetTop - 12), behavior: "smooth" });
+    },
+    afficherCas(titre) {
+      const zone = $("prop-resultats");
+      zone.replaceChildren();
+      if (this.stories.length) {
+        const retour = element("button", "lien", "Revenir aux user stories");
+        retour.type = "button";
+        retour.addEventListener("click", () => this.afficherStories());
+        zone.append(retour);
+      }
+      zone.append(element("p", "prop-bilan", titre ? `Cas de test proposés pour « ${titre} » :` : "Cas de test proposés :"));
+      const liste = element("ul", "prop-liste");
+      const cartes = this.cas.map((c) => {
+        const details = element("details");
+        details.append(element("summary", "", `${c.etapes.length} étape${c.etapes.length > 1 ? "s" : ""}, ${c.resultats.length} résultat${c.resultats.length > 1 ? "s" : ""} attendu${c.resultats.length > 1 ? "s" : ""}`),
+                       element("pre", "gherkin", this.apercuCas(c)));
+        const carte = this.carte(c.titre, [details]);
+        liste.append(carte);
+        return carte;
+      });
+      zone.append(liste, this.barreEnregistrer("Enregistrer la sélection dans cas_de_test",
+        "Chaque cas reçoit le prochain numéro libre (CT-xx), comme dans Squash TM.",
+        () => ({ cas: this.cas.filter((_, i) => cartes[i].coche.checked) })));
+      this.montrer(zone);
+    },
+    barreEnregistrer(libelle, note, choix) {
+      const barre = element("div", "prop-actions");
+      const bouton = element("button", "bouton-principal", libelle);
+      bouton.type = "button";
+      bouton.addEventListener("click", () => this.enregistrer(choix()));
+      barre.append(bouton, element("p", "reglage-note", note));
+      return barre;
+    },
+    async enregistrer(selection) {
+      if (this.occupe) return;
+      const nombre = (selection.stories || selection.cas || []).length;
+      if (!nombre) return this.message("Cochez au moins une proposition.", "alerte");
+      try {
+        const r = await api("/api/propositions/enregistrer", { method: "POST", corps: { url: this.url, ...selection } });
+        this.fenetre().close();
+        annoncer(r.say, { important: true, interrompre: true });
+        await chargerCas(r.first);
+      } catch (erreur) { this.message(erreur.message, "alerte"); }
+    },
+    dicter() {
+      const zone = $("prop-story");
+      Ecoute.basculer((texte) => { zone.value = (zone.value.trim() ? zone.value.trim() + " " : "") + texte; zone.focus(); }, $("prop-dicter"));
     },
   };
 
@@ -1171,7 +1644,24 @@ URL : https://www.saucedemo.com/
   function brancher() {
     $("bouton-lancer").addEventListener("click", lancer);
     $("bouton-arret").addEventListener("click", arreter);
-    $("bouton-ecrire").addEventListener("click", ouvrirEditeur);
+    $("bouton-ecrire").addEventListener("click", () => ouvrirEditeur());
+    $("dialogue").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const texte = $("dialogue-texte").value.trim();
+      if (!texte) return;
+      $("dialogue-texte").value = "";
+      $("vous").hidden = false;
+      $("vous").textContent = `Vous : « ${texte} »`;
+      executer(comprendre(texte), texte);
+    });
+    $("bouton-proposer").addEventListener("click", () => Propositions.ouvrir());
+    $("propositions-fermer").addEventListener("click", () => Propositions.fenetre().close());
+    $("onglet-site").addEventListener("click", () => Propositions.choisirOnglet("site"));
+    $("onglet-story").addEventListener("click", () => Propositions.choisirOnglet("story"));
+    $("prop-lancer").addEventListener("click", () => Propositions.lancer());
+    $("prop-dicter").addEventListener("click", () => Propositions.dicter());
+    $("prop-url").addEventListener("input", () => Propositions.majMoteur());
+    for (const radio of document.querySelectorAll('input[name="prop-moteur"]')) radio.addEventListener("change", () => Propositions.majMoteur(radio.value));
     $("bouton-micro").addEventListener("click", () => Ecoute.basculer());
     $("bouton-voix").addEventListener("click", () => {
       Parole.active = !Parole.active;
@@ -1199,7 +1689,10 @@ URL : https://www.saucedemo.com/
     for (const radio of document.querySelectorAll('input[name="moteur"]')) radio.addEventListener("change", () => ajusterMoteur(radio.value));
     $("option-pause").addEventListener("input", () => { etat.pauseTouchee = true; });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); lancer(); }
+      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+      e.preventDefault();
+      if (Propositions.fenetre().open) Propositions.lancer();
+      else lancer();
     });
   }
 
@@ -1231,7 +1724,7 @@ URL : https://www.saucedemo.com/
     }
   }
 
-  window.Alfred = { comprendre, etat };  // utilisé par les tests de l'interface
+  window.Alfred = { comprendre, etat, Propositions, converser };  // utilisé par les tests de l'interface
   demarrer();
 })();
 </script>

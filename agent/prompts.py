@@ -26,14 +26,25 @@ Actions disponibles :
 - select : {"ref": 5, "value": "..."} choisit une option dans une liste déroulante
 - check_text : {"text": "..."} vérifie qu'un texte est présent sur la page. Ajoute "absent": true pour vérifier qu'il n'y est pas.
 - check_url : {"contains": "..."} vérifie que l'URL contient ce texte. Ajoute "absent": true pour vérifier qu'elle ne le contient pas.
+- check_order : {"texts": ["...", "..."]} vérifie que ces textes apparaissent dans cet ordre sur la page (tri d'une liste)
+- check_count : {"text": "...", "count": 2} vérifie que ce texte apparaît exactement ce nombre de fois sur la page
+- check_value : {"ref": 4, "value": "..."} vérifie le contenu d'un champ ou l'option choisie dans une liste
+- check_state : {"ref": 4, "state": "enabled" | "disabled" | "checked" | "unchecked"} vérifie qu'un élément est actif, grisé, coché ou décoché
 - finish : {"status": "PASS" | "FAIL" | "BLOQUE", "summary": "..."} termine le test
 
 Règles :
 1. Suis les étapes du cas de test dans l'ordre, sans en ajouter.
 2. Utilise uniquement les numéros « ref » de la liste actuelle : ils changent après chaque action.
 3. Utilise exactement les données de test fournies. N'invente jamais d'identifiant, de mot de passe ou de valeur.
-4. Vérifie chaque résultat attendu avec check_text ou check_url avant de terminer. Pour un résultat attendu négatif (« ne s'affiche pas », « ne contient pas »), utilise "absent": true.
+4. Vérifie chaque résultat attendu avant de terminer, avec la vérification la plus précise : check_order pour un ordre, check_count pour un nombre, check_value pour le contenu d'un champ, check_state pour un bouton grisé ou une case cochée, sinon check_text ou check_url. Pour un résultat attendu négatif (« ne s'affiche pas », « ne contient pas »), utilise "absent": true avec check_text ou check_url.
 5. Termine avec finish : PASS si toutes les vérifications ont réussi, FAIL si une vérification a échoué, BLOQUE si une étape est impossible (élément introuvable après deux essais, erreur bloquante).
+6. Si le cas de test est un scénario Gherkin, les lignes « Étant donné que » et « Quand » sont les étapes, les lignes « Alors » (et les « Et » qui les suivent) sont les résultats attendus.
+"""
+
+# Ajouté aux consignes quand la vision est activée : le modèle reçoit aussi la capture d'écran.
+VISION_PROMPT = """
+Vision : une capture d'écran de la page est jointe à chaque tour. Sers-t'en pour comprendre la mise en page et repérer un défaut visible, mais désigne toujours les éléments par leur numéro « ref ».
+- check_visual : {"expected": "...", "seen": "...", "ok": true | false} pour un résultat attendu qui ne se vérifie qu'à l'œil (une image, une couleur, une mise en page). Décris dans « seen » ce que montre la capture, et dis si c'est conforme. C'est ton avis, signalé comme tel dans le rapport : utilise toujours une autre vérification quand le résultat se lit dans le texte, l'URL ou un élément.
 """
 
 
@@ -44,8 +55,14 @@ def describe_step(step: Step) -> str:
         return f"{step.number}. Réponse illisible : {result.detail}"
     action = step.action
     target = f" [{action.args['ref']}]" if "ref" in action.args else ""
-    value = next((action.args[k] for k in ("url", "text", "value", "contains") if k in action.args), "")
-    value = f' "{value}"' if value else ""
+    if "texts" in action.args:
+        value = " puis ".join(f'"{t}"' for t in action.args["texts"])
+    else:
+        value = next((action.args[k] for k in ("url", "text", "value", "contains", "state", "expected") if k in action.args), "")
+        value = f'"{value}"' if value else ""
+    if "count" in action.args:
+        value += f" x{action.args['count']}"
+    value = f" {value}" if value else ""
     if action.args.get("absent"):
         value += " (absent)"
     if result.check is True:

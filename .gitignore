@@ -10,9 +10,15 @@ __pycache__/
 # Rapports générés par l'agent
 rapports/
 
+# Mémoire des parcours réussis (contient les données de test saisies)
+memoire/
+
 # Journaux de Robot Framework et captures de SeleniumLibrary en cas d'échec
 output.xml
 log.html
 report.html
 resultats-robot/
 selenium-screenshot-*.png
+
+# Propositions de l'IA (user stories et cas de test) à relire avant de les garder
+propositions/

@@ -1,0 +1,148 @@
+{
+  "_lisezmoi": "Réponses enregistrées pour la démo sans IA des propositions (site de démo local). Alfred remplace http://localhost:8000 par l'adresse réelle du site de démo.",
+  "stories": {
+    "stories": [
+      {
+        "titre": "Connexion à la boutique",
+        "en_tant_que": "client de la boutique",
+        "je_veux": "me connecter avec mon identifiant et mon mot de passe",
+        "afin_de": "accéder aux produits",
+        "priorite": "haute",
+        "criteres": [
+          {
+            "scenario": "Connexion réussie",
+            "etapes": [
+              "Étant donné que je suis sur la page de connexion « http://localhost:8000/index.html »",
+              "Quand je saisis « standard_user » dans le champ « Identifiant »",
+              "Et je saisis « secret_sauce » dans le champ « Mot de passe »",
+              "Et je clique sur le bouton « Connexion »",
+              "Alors la page « Produits » s'affiche",
+              "Et l'adresse de la page contient « inventory »"
+            ]
+          },
+          {
+            "scenario": "Mot de passe incorrect",
+            "etapes": [
+              "Étant donné que je suis sur la page de connexion « http://localhost:8000/index.html »",
+              "Quand je saisis « standard_user » dans le champ « Identifiant »",
+              "Et je saisis « mauvais » dans le champ « Mot de passe »",
+              "Et je clique sur le bouton « Connexion »",
+              "Alors le message « Identifiant ou mot de passe incorrect » s'affiche",
+              "Et l'adresse de la page ne contient pas « inventory »"
+            ]
+          }
+        ]
+      },
+      {
+        "titre": "Ajout d'un produit au panier",
+        "en_tant_que": "client connecté",
+        "je_veux": "ajouter un produit au panier",
+        "afin_de": "le commander ensuite",
+        "priorite": "haute",
+        "criteres": [
+          {
+            "scenario": "Le panier compte le produit ajouté",
+            "etapes": [
+              "Étant donné que je suis connecté avec « standard_user » et « secret_sauce » sur « http://localhost:8000/index.html »",
+              "Quand je clique sur le premier bouton « Ajouter au panier »",
+              "Alors le lien « Panier (1) » s'affiche",
+              "Et un seul bouton « Retirer » s'affiche"
+            ]
+          }
+        ]
+      },
+      {
+        "titre": "Tri des produits par prix",
+        "en_tant_que": "client connecté",
+        "je_veux": "trier les produits par prix croissant",
+        "afin_de": "trouver rapidement le moins cher",
+        "priorite": "moyenne",
+        "criteres": [
+          {
+            "scenario": "Tri par prix croissant",
+            "etapes": [
+              "Étant donné que je suis connecté avec « standard_user » et « secret_sauce » sur « http://localhost:8000/index.html »",
+              "Quand je choisis « Prix croissant » dans la liste « Trier »",
+              "Alors les produits s'affichent dans l'ordre « Lampe de vélo », « T-shirt », puis « Sac à dos »"
+            ]
+          }
+        ]
+      },
+      {
+        "titre": "Conditions générales de vente",
+        "en_tant_que": "client qui commande",
+        "je_veux": "accepter les conditions générales de vente avant de continuer",
+        "afin_de": "savoir à quoi je m'engage",
+        "priorite": "moyenne",
+        "criteres": [
+          {
+            "scenario": "Le bouton Continuer attend l'accord du client",
+            "etapes": [
+              "Étant donné que je suis sur la page de commande « http://localhost:8000/commande.html »",
+              "Alors le bouton « Continuer » est grisé",
+              "Quand je coche la case « J'accepte les conditions générales de vente »",
+              "Alors le bouton « Continuer » est actif"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "cas": {
+    "Connexion à la boutique": {
+      "cas": [
+        {
+          "titre": "Connexion avec un utilisateur valide",
+          "preconditions": "Le compte « standard_user » existe, avec le mot de passe « secret_sauce ».",
+          "etapes": [
+            "Saisir « standard_user » dans le champ Identifiant",
+            "Saisir « secret_sauce » dans le champ Mot de passe",
+            "Cliquer sur le bouton Connexion"
+          ],
+          "resultats": ["La page « Produits » s'affiche", "L'URL contient « inventory »"]
+        },
+        {
+          "titre": "Connexion refusée avec un mot de passe incorrect",
+          "preconditions": "Le compte « standard_user » existe.",
+          "etapes": [
+            "Saisir « standard_user » dans le champ Identifiant",
+            "Saisir « mauvais » dans le champ Mot de passe",
+            "Cliquer sur le bouton Connexion"
+          ],
+          "resultats": ["Le message « Identifiant ou mot de passe incorrect » s'affiche", "L'URL ne contient pas « inventory »"]
+        },
+        {
+          "titre": "Connexion refusée sans identifiant",
+          "preconditions": "",
+          "etapes": ["Saisir « secret_sauce » dans le champ Mot de passe", "Cliquer sur le bouton Connexion"],
+          "resultats": ["Le message « Identifiant ou mot de passe incorrect » s'affiche", "L'URL ne contient pas « inventory »"]
+        }
+      ]
+    },
+    "Tri des produits par prix": {
+      "cas": [
+        {
+          "titre": "Tri des produits par prix croissant",
+          "preconditions": "Le compte « standard_user » existe, avec le mot de passe « secret_sauce ».",
+          "etapes": [
+            "Saisir « standard_user » dans le champ Identifiant, puis « secret_sauce » dans le champ Mot de passe",
+            "Cliquer sur le bouton Connexion",
+            "Choisir « Prix croissant » dans la liste Trier"
+          ],
+          "resultats": ["Les produits s'affichent dans l'ordre « Lampe de vélo », « T-shirt », puis « Sac à dos »"]
+        },
+        {
+          "titre": "Retour au tri par nom",
+          "preconditions": "Le compte « standard_user » existe, avec le mot de passe « secret_sauce ».",
+          "etapes": [
+            "Saisir « standard_user » dans le champ Identifiant, puis « secret_sauce » dans le champ Mot de passe",
+            "Cliquer sur le bouton Connexion",
+            "Choisir « Prix croissant » dans la liste Trier",
+            "Choisir « Nom (A à Z) » dans la liste Trier"
+          ],
+          "resultats": ["Les produits s'affichent dans l'ordre « Lampe de vélo », « Sac à dos », puis « T-shirt »"]
+        }
+      ]
+    }
+  }
+}

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agent.actions import STATE_LABELS
 from agent.runner import STOPPED_SUMMARY
 
 if TYPE_CHECKING:
@@ -18,6 +19,13 @@ if TYPE_CHECKING:
     from agent.runner import RunResult, Step
 
 MAX_SPOKEN = 220  # au-delà, la phrase lue à voix haute est coupée
+
+# Nature probable de l'échec, selon le diagnostic du modèle
+_NATURE_SPEECH = {"bug": "d'un bug de l'application", "test": "d'un problème du test lui-même",
+                  "environnement": "d'un problème d'environnement, par exemple le site indisponible"}
+
+# Accord au féminin des états vérifiés (« la liste est grisée »)
+_STATE_FEMININE = {"enabled": "active", "disabled": "grisée", "checked": "cochée", "unchecked": "décochée"}
 
 
 def q(text: str) -> str:
@@ -42,15 +50,31 @@ def element_name(element: Element | None) -> str:
         return "l'élément demandé"
     attrs = element.attrs or {}
     text = (element.text or "").strip()
-    if element.tag in ("input", "textarea") and (element.type or "") not in ("submit", "button", "reset"):
-        name = attrs.get("placeholder") or attrs.get("aria") or attrs.get("name") or attrs.get("id") or attrs.get("test_id")
+    kind = (element.type or "").lower()
+    if element.tag == "input" and kind in ("checkbox", "radio"):
+        name = attrs.get("label") or attrs.get("aria") or attrs.get("name") or attrs.get("id") or attrs.get("test_id")
+        noun = "la case" if kind == "checkbox" else "l'option"
+        return f"{noun} {q(name)}" if name else noun
+    if element.tag in ("input", "textarea") and kind not in ("submit", "button", "reset"):
+        name = (attrs.get("label") or attrs.get("aria") or attrs.get("placeholder") or attrs.get("name")
+                or attrs.get("id") or attrs.get("test_id"))
         return f"le champ {q(name)}" if name else "le champ"
     if element.tag == "select":
-        name = attrs.get("aria") or attrs.get("name") or attrs.get("id") or attrs.get("test_id")
+        name = attrs.get("label") or attrs.get("aria") or attrs.get("name") or attrs.get("id") or attrs.get("test_id")
         return f"la liste {q(name)}" if name else "la liste"
     label = text or attrs.get("aria") or attrs.get("test_id") or attrs.get("id")
     kind = "le lien" if element.tag == "a" else "le bouton"
     return f"{kind} {q(label)}" if label else kind
+
+
+def state_word(state: str, element: Element | None) -> str:
+    """« grisé » ou « grisée », selon le nom de l'élément."""
+    feminine = element_name(element).startswith(("la ", "l'option"))
+    return _STATE_FEMININE[state] if feminine else STATE_LABELS[state]
+
+
+def times(count: int) -> str:
+    return "une fois" if count == 1 else f"{count} fois"
 
 
 def action_label(action: Action | None, element: Element | None = None) -> str:
@@ -74,6 +98,23 @@ def action_label(action: Action | None, element: Element | None = None) -> str:
     if action.name == "check_url":
         verb = "ne contient pas" if args.get("absent") else "contient"
         return f"Vérification : l'URL {verb} {q(args['contains'])}"
+    if action.name == "check_order":
+        return "Vérification de l'ordre : " + ", puis ".join(q(text) for text in args["texts"])
+    if action.name == "check_count":
+        if args["count"] == 0:
+            return f"Vérification : {q(args['text'])} n'apparaît pas"
+        return f"Vérification : {q(args['text'])} apparaît {times(args['count'])}"
+    if action.name == "check_value":
+        if is_secret(element):
+            return f"Vérification du mot de passe saisi dans {element_name(element)}"
+        if args["value"] == "":
+            return f"Vérification : {element_name(element)} est vide"
+        verb = "indique" if element is not None and element.tag == "select" else "contient"
+        return f"Vérification : {element_name(element)} {verb} {q(args['value'])}"
+    if action.name == "check_state":
+        return f"Vérification : {element_name(element)} est {state_word(args['state'], element)}"
+    if action.name == "check_visual":
+        return f"Vérification visuelle (avis de l'IA) : {q(args['expected'])}"
     return action.name
 
 
@@ -95,6 +136,25 @@ def action_speech(action: Action, element: Element | None = None, number: int = 
         return f"Je vérifie que {q(args['text'])} {verb}."
     if action.name == "check_url":
         return "Je vérifie l'adresse de la page."
+    if action.name == "check_order":
+        texts = args["texts"]
+        if len(texts) == 2:
+            return f"Je vérifie que {q(texts[0])} apparaît avant {q(texts[1])}."
+        return f"Je vérifie l'ordre de {len(texts)} éléments, en commençant par {q(texts[0])}."
+    if action.name == "check_count":
+        if args["count"] == 0:
+            return f"Je vérifie que {q(args['text'])} n'apparaît pas."
+        return f"Je vérifie que {q(args['text'])} apparaît {times(args['count'])}."
+    if action.name == "check_value":
+        if is_secret(element):
+            return "Je vérifie le mot de passe saisi."
+        if args["value"] == "":
+            return f"Je vérifie que {element_name(element)} est vide."
+        return f"Je vérifie le contenu de {element_name(element)}."
+    if action.name == "check_state":
+        return f"Je vérifie que {element_name(element)} est {state_word(args['state'], element)}."
+    if action.name == "check_visual":
+        return f"Je regarde l'écran : {args['expected']}."
     return ""
 
 
@@ -112,6 +172,26 @@ def step_speech(step: Step) -> str | None:
     return None
 
 
+def memory_speech(steps: int) -> str:
+    """Annonce du rejeu d'un parcours mémorisé."""
+    return f"Je connais déjà ce parcours, en {steps} étape{'s' if steps > 1 else ''}. Je le rejoue sans faire appel à l'IA."
+
+
+def heal_speech(number: int, provider_label: str) -> str:
+    """Annonce de l'auto-réparation : le site a changé, le modèle prend le relais."""
+    return f"Le site a changé à l'étape {number}. Je demande à {provider_label} de trouver le nouveau chemin."
+
+
+def analysis_speech() -> str:
+    return "J'analyse l'échec pour rédiger la fiche d'anomalie."
+
+
+def wait_speech(seconds: float) -> str:
+    """Annonce d'une pause imposée par le quota de l'API."""
+    n = max(1, round(seconds))
+    return f"Le quota du modèle est atteint pour cette minute. Je patiente {n} seconde{'s' if n > 1 else ''}, puis je reprends."
+
+
 def start_speech(title: str, provider_label: str) -> str:
     return f"Très bien. Je lance {title}, avec {provider_label}."
 
@@ -120,12 +200,52 @@ def done_speech(run: RunResult, stopped: bool) -> str:
     """Annonce du verdict."""
     if stopped and run.summary == STOPPED_SUMMARY:
         return "Mission arrêtée, comme demandé. Le rapport des étapes réalisées est prêt."
+    if run.status == "PASS" and run.healed_at is not None:
+        return "Mission accomplie. J'ai réparé le parcours et mis ma mémoire à jour. Les tests générés sont prêts."
+    if run.status == "PASS" and run.memory_replayed and run.model_calls == 0:
+        return "Mission accomplie, sans aucun appel à l'IA : j'ai rejoué le parcours en mémoire."
     if run.status == "PASS":
-        return "Mission accomplie : le test est réussi. Les tests pytest et Robot Framework sont prêts."
-    if run.status == "FAIL":
-        return _cut(f"Le test a échoué. {run.summary}")
-    return _cut(f"Je n'ai pas pu aller au bout. {run.summary}")
+        return "Mission accomplie : le test est réussi. Les tests pytest, Robot Framework et Gherkin sont prêts."
+    opening = "Le test a échoué." if run.status == "FAIL" else "Je n'ai pas pu aller au bout."
+    sheet = "La fiche d'anomalie est prête." if run.status == "FAIL" else "L'analyse du blocage est prête."
+    if run.diagnosis:
+        return _cut(f"{opening} D'après mon analyse, il s'agit probablement {_NATURE_SPEECH[run.diagnosis['nature']]}. {sheet}")
+    if run.anomaly_path is not None:
+        return _cut(f"{opening} {sheet} {run.summary}")
+    return _cut(f"{opening} {run.summary}")
 
 
 def _cut(text: str) -> str:
     return text if len(text) <= MAX_SPOKEN else text[: MAX_SPOKEN - 1].rsplit(" ", 1)[0] + "…"
+
+
+# --- Propositions : user stories et cas de test -------------------------------------------
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}{'s' if count > 1 else ''}"
+
+
+def stories_speech(analysis, count: int) -> str:
+    """Après l'analyse d'un site : ce qu'Alfred a vu, et ce qu'il propose."""
+    pages = len(analysis.pages)
+    text = f"J'ai analysé {_plural(pages, 'page')} et je vous propose {count} user stor{'ies' if count > 1 else 'y'}."
+    if analysis.username and not analysis.logged_in:
+        text += " La connexion avec le compte de test n'a pas abouti : je n'ai vu que les pages publiques."
+    return text + " Cochez celles que vous voulez garder."
+
+
+def cases_speech(count: int, story: str = "") -> str:
+    target = f" pour {q(story)}" if story else ""
+    if count == 1:
+        return f"Voici un cas de test{target}. Gardez-le s'il vous convient."
+    return f"Voici {count} cas de test{target}. Gardez ceux qui vous conviennent."
+
+
+def saved_speech(stories: int, cases: int) -> str:
+    parts = []
+    if stories:
+        parts.append(f"{stories} user stor{'ies' if stories > 1 else 'y'} en Gherkin")
+    if cases:
+        parts.append(f"{cases} cas de test")  # « cas » ne prend pas de s
+    return f"C'est enregistré : {' et '.join(parts)}, dans le dossier cas de test. Vous pouvez les lancer."

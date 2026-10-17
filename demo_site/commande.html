@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Commande</title>
+  <style>
+    body { font-family: sans-serif; max-width: 420px; margin: 40px auto; padding: 0 16px; }
+    input:not([type=checkbox]), select { display: block; width: 100%; margin: 8px 0; padding: 8px; box-sizing: border-box; }
+    label { display: block; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>Vos informations</h1>
+  <form id="commande">
+    <input id="prenom" name="prenom" placeholder="Prénom">
+    <input id="code-postal" name="code-postal" placeholder="Code postal">
+    <select id="livraison" data-test="livraison">
+      <option value="domicile">Livraison à domicile</option>
+      <option value="relais">Point relais</option>
+    </select>
+    <label><input type="checkbox" data-test="cgu"> J'accepte les conditions générales de vente</label>
+    <button type="submit" data-test="continuer" disabled>Continuer</button>
+  </form>
+  <p data-test="confirmation" hidden>Merci, votre commande est enregistrée.</p>
+  <script>
+    // Le bouton « Continuer » reste grisé tant que les conditions ne sont pas acceptées.
+    const cgu = document.querySelector('[data-test=cgu]');
+    cgu.addEventListener('change', () => {
+      document.querySelector('[data-test=continuer]').disabled = !cgu.checked;
+    });
+    document.getElementById('commande').addEventListener('submit', (event) => {
+      event.preventDefault();
+      document.querySelector('[data-test=confirmation]').hidden = false;
+    });
+  </script>
+</body>
+</html>

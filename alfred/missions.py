@@ -13,8 +13,11 @@ import threading
 import time
 from pathlib import Path
 
-from agent.execution import new_out_dir, run_case
+from agent.anomalie import GRAVITES, NATURES
+from agent.execution import memory_for, new_out_dir, run_case
+from agent.memoire import Memory
 from agent.providers import Provider
+from agent.report import memory_note
 from agent.runner import RunResult, Step
 from agent.testcase import TestCase
 
@@ -28,7 +31,8 @@ class MissionBusy(Exception):
 
 
 class Mission:
-    def __init__(self, case: TestCase, provider: Provider, out_dir: Path, headed: bool, pause_s: float, max_steps: int):
+    def __init__(self, case: TestCase, provider: Provider, out_dir: Path, headed: bool, pause_s: float, max_steps: int,
+                 memory: Memory | None = None, vision: bool = False):
         self.id = out_dir.name
         self.case = case
         self.provider = provider
@@ -36,6 +40,8 @@ class Mission:
         self.headed = headed
         self.pause_s = pause_s
         self.max_steps = max_steps
+        self.memory = memory  # parcours mémorisés, ou None pour tout faire avec le modèle
+        self.vision = vision  # le modèle reçoit aussi la capture d'écran
         self.stop_event = threading.Event()
         self.events: list[dict] = []
         self.finished = False
@@ -69,18 +75,22 @@ class Mission:
 class MissionManager:
     """Lance les missions, une à la fois, et garde celles de la session."""
 
-    def __init__(self, reports_dir: Path, max_steps: int = 20):
+    def __init__(self, reports_dir: Path, max_steps: int = 20, memory_dir: Path | None = None):
         self.reports_dir = Path(reports_dir)
         self.max_steps = max_steps
+        self.memory_dir = Path(memory_dir) if memory_dir is not None else self.reports_dir.parent / "memoire"
         self.missions: dict[str, Mission] = {}
         self.current: Mission | None = None
         self._lock = threading.Lock()
 
-    def start(self, case: TestCase, provider: Provider, headed: bool = False, pause_s: float = 0.0) -> Mission:
+    def start(self, case: TestCase, provider: Provider, headed: bool = False, pause_s: float = 0.0,
+              use_memory: bool = True, vision: bool = False) -> Mission:
         with self._lock:
             if self.current is not None and not self.current.finished:
                 raise MissionBusy("Une mission est déjà en cours : attendez sa fin ou arrêtez-la.")
-            mission = Mission(case, provider, new_out_dir(self.reports_dir, case), headed, pause_s, self.max_steps)
+            memory = memory_for(provider, self.memory_dir) if use_memory else None
+            mission = Mission(case, provider, new_out_dir(self.reports_dir, case), headed, pause_s, self.max_steps, memory,
+                              vision)
             mission.out_dir.mkdir(parents=True)  # réserve le nom du dossier
             self.missions[mission.id] = mission
             self.current = mission
@@ -96,6 +106,7 @@ class MissionManager:
             provider=mission.provider.name,
             model=mission.provider.model,
             max_steps=mission.max_steps,
+            vision=mission.vision,
             say=narration.start_speech(mission.case.title, provider_label),
         )
         try:
@@ -108,6 +119,8 @@ class MissionManager:
                 pause_s=mission.pause_s,
                 on_event=lambda kind, data: self._relay(mission, kind, data),
                 stop_event=mission.stop_event,
+                memory=mission.memory,
+                vision=mission.vision,
             )
         except Exception as exc:  # navigateur absent, erreur inattendue... : la page doit le savoir
             message = f"{type(exc).__name__} : {exc}".strip()
@@ -129,6 +142,16 @@ class MissionManager:
             mission.emit("phase", **payload)
         elif kind == "step":
             mission.emit("step", **self._step(mission, data["step"]))
+        elif kind == "wait":  # quota par minute atteint : l'agent patiente avant de réessayer
+            mission.emit("wait", seconds=data["seconds"], attempt=data["attempt"], max_attempts=data["max_attempts"],
+                         say=narration.wait_speech(data["seconds"]))
+        elif kind == "memory":  # parcours déjà réussi : rejoué sans le modèle
+            mission.emit("memory", steps=data["steps"], saved_at=data.get("saved_at"), say=narration.memory_speech(data["steps"]))
+        elif kind == "analysis":  # test en échec : le modèle rédige son diagnostic
+            mission.emit("analysis", say=narration.analysis_speech())
+        elif kind == "heal":  # le site a changé : le modèle reprend la main à cette étape
+            label = PROVIDER_LABELS.get(mission.provider.name, mission.provider.name)
+            mission.emit("heal", number=data["number"], reason=data["reason"], say=narration.heal_speech(data["number"], label))
 
     @staticmethod
     def _step(mission: Mission, step: Step) -> dict:
@@ -142,6 +165,7 @@ class MissionManager:
             "check": step.result.check,
             "detail": step.result.detail,
             "screenshot": mission.url(step.screenshot) if step.screenshot else None,
+            "memory": step.source == "memoire",
             "say": narration.step_speech(step),
         }
 
@@ -151,7 +175,14 @@ class MissionManager:
             "rapport": result.report_path,
             "pytest": result.script_path,
             "robot": result.robot_path,
+            "gherkin": result.feature_path,
+            "robot_bdd": result.bdd_path,
+            "anomalie": result.anomaly_path,
         }
+        diagnosis = None
+        if result.diagnosis:
+            diagnosis = {"nature": NATURES[result.diagnosis["nature"]], "gravite": GRAVITES[result.diagnosis["gravite"]],
+                         "titre": result.diagnosis["titre"]}
         stopped = mission.stop_event.is_set()
         return {
             "status": result.status,
@@ -160,6 +191,9 @@ class MissionManager:
             "steps": len(result.steps),
             "checks_ok": sum(1 for s in result.checks if s.result.check),
             "checks_failed": sum(1 for s in result.checks if s.result.check is False),
+            "model_calls": None if result.provider == "scripted" else result.model_calls,  # la démo n'appelle aucun modèle
+            "memory": memory_note(result),
+            "diagnosis": diagnosis,
             "folder": mission.out_dir.as_posix(),
             "files": {name: mission.url(path.name) for name, path in files.items() if path is not None},
             "stopped": stopped,

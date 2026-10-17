@@ -1,0 +1,109 @@
+language: fr
+
+*** Settings ***
+Documentation     Scénario Gherkin généré automatiquement par agent-qa-playwright.
+...               Cas de test : CT-90 Démo locale : tri, panier et commande
+...               Même scénario que ct_90_demo_locale_tri_panier_et_commande.feature : Robot Framework comprend
+...               Étant donné que, Quand, Alors et Et. Chaque phrase est un mot-clé, plus bas.
+Library           SeleniumLibrary    timeout=${DELAI}    implicit_wait=${DELAI}
+Test Teardown     Close Browser
+
+*** Variables ***
+${BROWSER}        chrome
+# Attente maximale d'un élément, d'un texte ou d'une URL.
+${DELAI}          5s
+
+*** Test Cases ***
+CT-90 Démo locale : tri, panier et commande
+    [Tags]    CT-90
+    Étant donné que je suis sur la page "http://localhost:8000/index.html"
+    Quand je saisis "standard_user" dans le champ "Identifiant"
+    Et je saisis "secret_sauce" dans le champ "Mot de passe"
+    Et je clique sur le bouton "Connexion"
+    Alors la page affiche 3 fois "Ajouter au panier"
+    Quand je choisis "Prix croissant" dans la liste "Trier"
+    Alors la page affiche dans cet ordre : "Lampe de vélo", "T-shirt" et "Sac à dos"
+    Quand je clique sur le bouton "Ajouter au panier" n°1
+    Alors la page affiche 1 fois "Retirer"
+    Quand je clique sur le lien "Commander"
+    Alors le bouton "Continuer" est grisé
+    Quand je clique sur la case "J'accepte les conditions générales de vente"
+    Alors la case "J'accepte les conditions générales de vente" est cochée
+    Et le bouton "Continuer" est actif
+    Et le champ "Code postal" est vide
+
+*** Keywords ***
+je suis sur la page "${url}"
+    Open Browser    ${url}    ${BROWSER}
+    Set Window Size    1280    800
+
+je saisis "${texte}" dans le champ "Identifiant"
+    Input Text    css:#user-name    ${texte}
+
+je saisis "${texte}" dans le champ "Mot de passe"
+    Input Text    css:#password    ${texte}
+
+je clique sur le bouton "Connexion"
+    Click Element    css:[data-test="login-button"]
+
+la page affiche ${nombre:\d+} fois "${texte}"
+    La page affiche ce nombre de fois    ${texte}    ${nombre}
+
+je choisis "${option}" dans la liste "Trier"
+    ${par_libelle}=    Run Keyword And Return Status    Select From List By Label    css:[data-test="sort"]    ${option}
+    IF    not ${par_libelle}    Select From List By Value    css:[data-test="sort"]    ${option}
+
+la page affiche dans cet ordre : ${textes}
+    ${liste}=    Evaluate    re.findall(r'"([^"]*)"', $textes)    modules=re
+    La page affiche dans l'ordre    @{liste}
+
+je clique sur le bouton "Ajouter au panier" n°1
+    Click Element    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
+
+je clique sur le lien "Commander"
+    Click Element    css:[data-test="checkout"]
+
+le bouton "Continuer" est grisé
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Element Should Be Disabled    css:[data-test="continuer"]
+
+je clique sur la case "J'accepte les conditions générales de vente"
+    Click Element    css:[data-test="cgu"]
+
+la case "J'accepte les conditions générales de vente" est cochée
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Checkbox Should Be Selected    css:[data-test="cgu"]
+
+le bouton "Continuer" est actif
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Element Should Be Enabled    css:[data-test="continuer"]
+
+le champ "Code postal" est vide
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Textfield Value Should Be    css:#code-postal    ${EMPTY}
+
+La page affiche ce nombre de fois
+    [Documentation]    Attend que le texte soit affiché exactement ce nombre de fois.
+    ...    La casse et les espaces ne comptent pas.
+    [Arguments]    ${texte}    ${nombre}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Le texte visible apparaît    ${texte}    ${nombre}
+
+Le texte visible apparaît
+    [Arguments]    ${texte}    ${nombre}
+    ${visible}=    Execute Javascript    return document.body.innerText
+    ${trouve}=    Evaluate    " ".join($visible.split()).lower().count(" ".join($texte.split()).lower())
+    Should Be Equal As Integers    ${trouve}    ${nombre}    msg=« ${texte} » est affiché ${trouve} fois au lieu de ${nombre}.    values=False
+
+La page affiche dans l'ordre
+    [Documentation]    Attend que les textes soient affichés dans cet ordre, par exemple après un tri.
+    ...    La casse et les espaces ne comptent pas.
+    [Arguments]    @{textes}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Les textes visibles se suivent    @{textes}
+
+Les textes visibles se suivent
+    [Arguments]    @{textes}
+    ${visible}=    Execute Javascript    return document.body.innerText
+    ${visible}=    Evaluate    " ".join($visible.split()).lower()
+    ${debut}=    Set Variable    ${0}
+    FOR    ${texte}    IN    @{textes}
+        ${cherche}=    Evaluate    " ".join($texte.split()).lower()
+        ${position}=    Evaluate    $visible.find($cherche, $debut)
+        Should Be True    $position >= 0    msg=Ordre non respecté : « ${texte} » n'est pas affiché à la place attendue.
+        ${debut}=    Evaluate    $position + len($cherche)
+    END

@@ -22,8 +22,23 @@ ACTIONS: dict[str, dict[str, type]] = {
     "select": {"ref": int, "value": str},
     "check_text": {"text": str},
     "check_url": {"contains": str},
+    "check_order": {"texts": list},
+    "check_count": {"text": str, "count": int},
+    "check_value": {"ref": int, "value": str},
+    "check_state": {"ref": int, "state": str},
+    "check_visual": {"expected": str, "seen": str, "ok": bool},
     "finish": {"status": str},
 }
+
+# Les vérifications : leur résultat (vrai ou faux) décide du statut final, pas l'avis du modèle.
+CHECKS = ("check_text", "check_url", "check_order", "check_count", "check_value", "check_state", "check_visual")
+
+# États qu'une vérification check_state peut constater, avec les synonymes français acceptés.
+# (La visibilité passe par check_text : l'agent ne voit que les éléments affichés.)
+STATES = ("enabled", "disabled", "checked", "unchecked")
+STATE_LABELS = {"enabled": "actif", "disabled": "grisé", "checked": "coché", "unchecked": "décoché"}
+_STATE_ALIASES = {"actif": "enabled", "activé": "enabled", "grisé": "disabled", "désactivé": "disabled",
+                  "coché": "checked", "décoché": "unchecked"}
 
 # Arguments facultatifs. « absent » transforme une vérification en vérification
 # négative : « le message d'erreur ne s'affiche pas », « l'URL ne contient pas ».
@@ -63,6 +78,12 @@ def _convert(value: object, arg_type: type) -> object:
     """
     if value is None:
         raise ValueError("valeur vide")
+    if arg_type is list:  # check_order : au moins deux textes non vides, dans l'ordre
+        if not isinstance(value, list) or len(value) < 2:
+            raise ValueError("liste d'au moins deux textes attendue")
+        if any(isinstance(item, (bool, list, dict)) or item is None or not str(item).strip() for item in value):
+            raise ValueError("chaque élément doit être un texte non vide")
+        return [str(item).strip() for item in value]
     if arg_type is bool:
         if isinstance(value, bool):
             return value
@@ -112,6 +133,17 @@ def parse_action(raw: str) -> Action:
                 clean_args[arg_name] = _convert(args[arg_name], arg_type)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"argument « {arg_name} » invalide pour l'action {name}") from exc
+
+    if name == "check_count" and (clean_args["count"] < 0 or not clean_args["text"].strip()):
+        raise ValueError("arguments invalides pour l'action check_count (texte non vide, nombre positif ou nul)")
+    if name == "check_visual" and (not clean_args["expected"].strip() or not clean_args["seen"].strip()):
+        raise ValueError("arguments « expected » et « seen » obligatoires pour l'action check_visual")
+    if name == "check_state":
+        state = clean_args["state"].strip().lower()
+        state = _STATE_ALIASES.get(state, state)
+        if state not in STATES:
+            raise ValueError(f"état « {state} » invalide (attendu : {', '.join(STATES)})")
+        clean_args["state"] = state
 
     if name == "finish":
         status = clean_args["status"].strip().upper()

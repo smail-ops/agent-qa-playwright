@@ -4,7 +4,8 @@
 |---|---|
 | Statut | **✅ PASS** |
 | Modèle | scripted (scénario simulé) |
-| Date | 17/10/2026 11:51 |
+| Appels au modèle | aucun (démo sans IA) |
+| Date | 17/10/2026 17:48 |
 | Durée | 1 s |
 | Actions | 8 |
 
@@ -35,10 +36,13 @@ Ils rejouent les actions réussies de l'agent, sans IA :
 
 - [`test_ct_00_demo_locale_connexion_et_panier.py`](test_ct_00_demo_locale_connexion_et_panier.py) : pytest et Playwright
 - [`ct_00_demo_locale_connexion_et_panier.robot`](ct_00_demo_locale_connexion_et_panier.robot) : Robot Framework et Selenium
+- [`ct_00_demo_locale_connexion_et_panier.feature`](ct_00_demo_locale_connexion_et_panier.feature) : scénario Gherkin en français (BDD), à lire ou à reprendre dans Squash TM ou Cucumber
+- [`ct_00_demo_locale_connexion_et_panier_bdd.robot`](ct_00_demo_locale_connexion_et_panier_bdd.robot) : le scénario Gherkin, exécutable avec Robot Framework
 
 ```
 pytest test_ct_00_demo_locale_connexion_et_panier.py
 robot ct_00_demo_locale_connexion_et_panier.robot
+robot ct_00_demo_locale_connexion_et_panier_bdd.robot
 ```
 
 ## Cas de test exécuté

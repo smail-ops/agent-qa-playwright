@@ -51,6 +51,16 @@ def test_verification_negative():
     assert action.args == {"contains": "inventory", "absent": True}
 
 
+def test_verifications_plus_riches():
+    """Ordre, nombre, valeur et état : les arguments sont contrôlés et normalisés."""
+    order = parse_action('{"action": "check_order", "args": {"texts": [" Lampe de vélo ", "T-shirt", 29.99]}}')
+    assert order.args == {"texts": ["Lampe de vélo", "T-shirt", "29.99"]}
+    assert parse_action('{"action": "check_count", "args": {"text": "Retirer", "count": "2"}}').args["count"] == 2
+    assert parse_action('{"action": "check_value", "args": {"ref": 1, "value": ""}}').args == {"ref": 1, "value": ""}
+    for state, expected in (("Disabled", "disabled"), ("grisé", "disabled"), ("coché", "checked"), ("décoché", "unchecked")):
+        assert parse_action(f'{{"action": "check_state", "args": {{"ref": 2, "state": "{state}"}}}}').args["state"] == expected
+
+
 @pytest.mark.parametrize(
     "raw, message",
     [
@@ -64,6 +74,15 @@ def test_verification_negative():
         ('{"action": "click", "args": {"ref": true}}', "ref"),  # true ne devient pas 1
         ('{"action": "click", "args": {"ref": 2.5}}', "ref"),
         ('{"action": "check_text", "args": {"text": "Produits", "absent": "peut-être"}}', "absent"),
+        ('{"action": "check_order", "args": {"texts": ["Seul"]}}', "texts"),  # un ordre demande deux textes
+        ('{"action": "check_order", "args": {"texts": "A puis B"}}', "texts"),
+        ('{"action": "check_order", "args": {"texts": ["A", " "]}}', "texts"),
+        ('{"action": "check_count", "args": {"text": "Remove", "count": -1}}', "check_count"),
+        ('{"action": "check_count", "args": {"text": " ", "count": 2}}', "check_count"),
+        ('{"action": "check_count", "args": {"text": "Remove", "count": 1.5}}', "count"),
+        ('{"action": "check_value", "args": {"ref": 4}}', "value"),
+        ('{"action": "check_state", "args": {"ref": 4, "state": "joli"}}', "état"),
+        ('{"action": "check_state", "args": {"ref": 4, "state": "visible"}}', "état"),  # la visibilité passe par check_text
     ],
 )
 def test_reponses_invalides(raw, message):
@@ -85,3 +104,20 @@ def test_meme_cas_sur_une_autre_adresse():
 def test_adresse_refusee(url):
     with pytest.raises(ValueError, match="http:// ou https://"):
         parse_test_case(CASE).with_url(url)
+
+
+def test_tous_les_cas_de_test_sont_valides():
+    """Chaque fichier de cas_de_test se lit, a un identifiant unique et une adresse https ou locale."""
+    from pathlib import Path
+
+    from alfred.server import case_code
+
+    dossier = Path(__file__).resolve().parent.parent / "cas_de_test"
+    codes = []
+    for fichier in sorted(dossier.rglob("CT-*.md")):
+        case = parse_test_case(fichier.read_text(encoding="utf-8"))
+        assert fichier.name.startswith(case_code(case.title) + "_"), fichier.name  # nom du fichier = identifiant
+        assert case.url.startswith(("https://", "http://localhost")), case.url
+        assert "## Étapes" in case.text and "## Résultats attendus" in case.text, fichier.name
+        codes.append(case_code(case.title))
+    assert len(codes) >= 14 and len(codes) == len(set(codes))

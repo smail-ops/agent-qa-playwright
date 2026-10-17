@@ -1,0 +1,17 @@
+[
+  {"action": "fill", "target": "#user-name", "args": {"text": "standard_user"}, "reason": "Étape 1 : saisie de l'identifiant"},
+  {"action": "fill", "target": "#password", "args": {"text": "secret_sauce"}, "reason": "Étape 1 : saisie du mot de passe"},
+  {"action": "click", "target": "[data-test=\"login-button\"]", "reason": "Étape 2 : clic sur Connexion"},
+  {"action": "check_count", "args": {"text": "Ajouter au panier", "count": 3}, "reason": "Résultat attendu : trois boutons « Ajouter au panier »"},
+  {"action": "select", "target": "[data-test=\"sort\"]", "args": {"value": "Prix croissant"}, "reason": "Étape 3 : tri par prix croissant"},
+  {"action": "check_order", "args": {"texts": ["Lampe de vélo", "T-shirt", "Sac à dos"]}, "reason": "Résultat attendu : produits triés du moins cher au plus cher"},
+  {"action": "click", "target": "button:has-text(\"Ajouter au panier\")", "reason": "Étape 4 : ajout du premier produit"},
+  {"action": "check_count", "args": {"text": "Retirer", "count": 1}, "reason": "Résultat attendu : un seul bouton « Retirer »"},
+  {"action": "click", "target": "[data-test=\"checkout\"]", "reason": "Étape 5 : clic sur Commander"},
+  {"action": "check_state", "target": "[data-test=\"continuer\"]", "args": {"state": "disabled"}, "reason": "Résultat attendu : « Continuer » grisé avant l'acceptation des conditions"},
+  {"action": "click", "target": "[data-test=\"cgu\"]", "reason": "Étape 6 : acceptation des conditions générales de vente"},
+  {"action": "check_state", "target": "[data-test=\"cgu\"]", "args": {"state": "checked"}, "reason": "La case est bien cochée"},
+  {"action": "check_state", "target": "[data-test=\"continuer\"]", "args": {"state": "enabled"}, "reason": "Résultat attendu : « Continuer » devient actif"},
+  {"action": "check_value", "target": "#code-postal", "args": {"value": ""}, "reason": "Résultat attendu : le champ Code postal est vide"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Tri, panier et formulaire de commande conformes"}, "reason": "Toutes les vérifications sont passées"}
+]

@@ -128,3 +128,65 @@ def test_texte_cache_ne_compte_pas(pw_page, demo_url, tmp_path):
     result = run_robot(generate_robot(run), tmp_path, "--variable", "DELAI:1s")
     assert result.returncode == 1, result.stdout
     assert "Le texte « mot de passe incorrect » n'est pas affiché." in result.stdout
+
+
+def test_test_robot_verifications_riches(pw_page, demo_url, tmp_path):
+    """Ordre, nombre, valeur et état : mots-clés générés, puis test rejoué par Robot Framework."""
+    from test_agent import VERIFICATIONS_RICHES
+
+    run = run_scenario(pw_page, demo_url, tmp_path, VERIFICATIONS_RICHES)
+    assert run.status == "PASS", run.summary
+    code = generate_robot(run)
+    attente = "    Wait Until Keyword Succeeds    ${DELAI}    200ms    "
+    assert attente + "Textfield Value Should Be    css:#user-name    standard_user" in code
+    assert "    La page affiche ce nombre de fois    Ajouter au panier    3" in code
+    assert attente + 'List Selection Should Be    css:[data-test="sort"]    Prix croissant' in code
+    assert "    La page affiche dans l'ordre    Lampe de vélo    T-shirt    Sac à dos" in code
+    assert attente + 'Element Should Be Disabled    css:[data-test="continuer"]' in code
+    assert attente + 'Checkbox Should Not Be Selected    css:[data-test="cgu"]' in code
+    assert attente + 'Checkbox Should Be Selected    css:[data-test="cgu"]' in code
+    assert attente + "Textfield Value Should Be    css:#code-postal    ${EMPTY}" in code
+    assert code.count("\nLa page affiche dans l'ordre\n") == 1 and code.count("\nLa page affiche ce nombre de fois\n") == 1
+
+    result = run_robot(code, tmp_path)
+    assert result.returncode == 0, result.stdout
+
+
+def test_test_robot_ordre_non_respecte(pw_page, demo_url, tmp_path):
+    """Liste non triée : l'agent conclut FAIL, et le test Robot généré échoue aussi, avec un message clair."""
+    scenario = [
+        {"action": "goto", "args": {"url": f"{demo_url}/inventory.html"}},
+        {"action": "check_order", "args": {"texts": ["Lampe de vélo", "T-shirt", "Sac à dos"]}},
+        {"action": "finish", "args": {"status": "PASS", "summary": "Liste triée"}},
+    ]
+    run = run_scenario(pw_page, demo_url, tmp_path, scenario)
+    assert run.status == "FAIL"
+    result = run_robot(generate_robot(run), tmp_path, "--variable", "DELAI:1s")
+    assert result.returncode == 1, result.stdout
+    assert "Ordre non respecté : « Sac à dos » n'est pas affiché à la place attendue." in result.stdout
+
+
+def test_etat_coche_selon_le_type_de_case(tmp_path):
+    """Case à cocher, bouton radio ou case dessinée (role=checkbox) : le bon mot-clé SeleniumLibrary."""
+    from agent.browser import Element
+    from agent.codegen_robot import _keyword, _state_keyword
+
+    cases = {
+        "css:#c": Element(1, "input", "checkbox", "", {"id": "c"}, "#c"),
+        "css:#r": Element(2, "input", "radio", "", {"id": "r"}, "#r"),
+        "css:#d": Element(3, "div", None, "Newsletter", {"id": "d"}, "#d"),
+    }
+    assert _state_keyword(cases["css:#c"], "checked") == ("Checkbox Should Be Selected",)
+    assert _state_keyword(cases["css:#r"], "unchecked") == ("Element Attribute Value Should Be", "checked", "${None}")
+    assert _state_keyword(cases["css:#d"], "checked") == ("Element Attribute Value Should Be", "aria-checked", "true")
+
+    page = ("data:text/html,<input type=checkbox id=c checked><input type=radio name=g id=r>"
+            "<input type=radio name=g id=r2 checked><div role=checkbox id=d aria-checked=true>Newsletter</div>")
+    lines = [_keyword("Open Browser", page, "${BROWSER}")]
+    for locator, element in cases.items():
+        state = "unchecked" if locator == "css:#r" else "checked"
+        lines.append(_keyword("Wait Until Keyword Succeeds", "1s", "200ms", _state_keyword(element, state)[0], locator,
+                              *_state_keyword(element, state)[1:]))
+    code = "*** Settings ***\nLibrary    SeleniumLibrary\n\n*** Variables ***\n${BROWSER}    chrome\n\n*** Test Cases ***\nCases\n"
+    result = run_robot(code + "\n".join(lines) + "\n", tmp_path)
+    assert result.returncode == 0, result.stdout
