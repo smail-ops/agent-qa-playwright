@@ -117,7 +117,17 @@ main {
 /* Détail du cas choisi */
 .detail { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--trait); }
 .detail h3 { font-size: 17px; font-weight: 600; line-height: 1.3; }
-.detail-url { color: var(--brume); font-size: 13px; margin-top: 4px; word-break: break-all; }
+.champ-url { display: grid; gap: 6px; margin-top: 12px; }
+.champ-url-nom { font-size: 13px; font-weight: 500; color: var(--brume); }
+.champ-url input {
+  width: 100%; background: var(--abysse-2); border: 1px solid var(--trait-fort); border-radius: 3px;
+  padding: 8px 10px; font: 13px/1.4 var(--code); color: var(--glace);
+}
+.champ-url input[aria-invalid="true"] { border-color: var(--ambre); }
+.champ-url-note { font-size: 12.5px; line-height: 1.4; color: var(--brume); }
+.champ-url-note[data-ton="alerte"] { color: var(--ambre); }
+.champ-url-note[data-ton="modifie"] { color: var(--holo); }
+.lien { justify-self: start; background: none; border: 0; padding: 0; color: var(--holo); font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px; }
 .detail h4 { font-size: 13px; font-weight: 500; color: var(--brume); margin: 16px 0 6px; letter-spacing: .02em; }
 .detail ol, .detail ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; }
 .detail li::marker { color: var(--brume); }
@@ -647,10 +657,50 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     const detail = $("detail");
     detail.replaceChildren();
     detail.hidden = false;
-    detail.append(element("h3", "", cas.title), element("p", "detail-url", cas.url));
+    detail.append(element("h3", "", cas.title), champSite(cas));
     rendreTexteCas(cas.text, detail);
     for (const b of $("liste-cas").querySelectorAll(".carte-cas")) b.setAttribute("aria-pressed", String(b.dataset.id === cas.id));
     ajusterMoteur();
+    majSite();
+  }
+
+  // Champ « Site à tester » : le même cas sur une autre adresse (recette, autre version, adresse IP).
+  function champSite(cas) {
+    const bloc = element("div", "champ-url");
+    const etiquette = element("label", "champ-url-nom", "Site à tester");
+    etiquette.htmlFor = "url-mission";
+    const saisie = element("input");
+    Object.assign(saisie, { type: "url", id: "url-mission", value: cas.url, spellcheck: false, autocomplete: "off" });
+    saisie.setAttribute("aria-describedby", "url-note");
+    saisie.addEventListener("input", majSite);
+    const note = element("p", "champ-url-note");
+    note.id = "url-note";
+    const retablir = element("button", "lien", "Rétablir l'adresse du cas");
+    retablir.type = "button";
+    retablir.id = "url-retablir";
+    retablir.addEventListener("click", () => { saisie.value = cas.url; majSite(); saisie.focus(); });
+    bloc.append(etiquette, saisie, note, retablir);
+    return bloc;
+  }
+
+  function urlValide() {
+    const saisie = $("url-mission");
+    return !saisie || /^https?:\/\/[^\s/?#]+\S*$/i.test(saisie.value.trim());
+  }
+
+  function majSite() {
+    const saisie = $("url-mission");
+    if (!saisie || !etat.selection) return;
+    const modifiee = saisie.value.trim() !== etat.selection.url;
+    const valide = urlValide();
+    const note = $("url-note");
+    saisie.setAttribute("aria-invalid", String(!valide));
+    note.dataset.ton = !valide ? "alerte" : modifiee ? "modifie" : "";
+    note.textContent = !valide ? "L'adresse doit commencer par http:// ou https://."
+      : modifiee ? "Adresse modifiée pour cette mission. Le fichier du cas ne change pas."
+      : "Pour lancer ce cas sur un autre site, une autre version ou une adresse IP, changez l'adresse ici.";
+    $("url-retablir").hidden = !modifiee;
+    majBoutons();
   }
 
   const MODELE = `# CT-10 Mon nouveau cas de test
@@ -734,10 +784,16 @@ URL : https://www.saucedemo.com/
     majBoutons();
   }
 
+  // Ce qui empêche de lancer la mission, en une phrase ; vide si rien ne bloque.
+  function raisonBlocage() {
+    if (!etat.selection) return "Choisissez d'abord un cas de test.";
+    if (!etat.selection.custom && !urlValide()) return "L'adresse à tester doit commencer par http:// ou https://.";
+    const pret = etat.moteur === "scripted" ? Boolean(etat.selection.demo) : moteurPret(etat.moteur);
+    return pret ? "" : $("aide-moteur").textContent;
+  }
+
   function peutLancer() {
-    const enCours = etat.mission && !etat.mission.fini;
-    const pret = etat.moteur === "scripted" ? Boolean(etat.selection && etat.selection.demo) : moteurPret(etat.moteur);
-    return Boolean(etat.selection) && pret && !enCours;
+    return !(etat.mission && !etat.mission.fini) && raisonBlocage() === "";
   }
 
   function majBoutons() {
@@ -745,7 +801,7 @@ URL : https://www.saucedemo.com/
     $("bouton-lancer").disabled = !peutLancer();
     $("bouton-lancer").hidden = enCours;
     $("bouton-arret").hidden = !enCours;
-    for (const b of document.querySelectorAll(".carte-cas, #bouton-ecrire, input[name='moteur'], #option-fenetre, #option-pause")) {
+    for (const b of document.querySelectorAll(".carte-cas, #bouton-ecrire, input[name='moteur'], #option-fenetre, #option-pause, #url-mission, #url-retablir")) {
       if (b.name === "moteur" && b.value === "scripted" && !(etat.selection && etat.selection.demo)) continue;
       b.disabled = enCours;
     }
@@ -753,7 +809,7 @@ URL : https://www.saucedemo.com/
     const indice = $("indice");
     indice.dataset.ton = "";
     if (enCours) indice.textContent = "Vous pouvez arrêter la mission à tout moment.";
-    else if (etat.selection && !peutLancer()) { indice.dataset.ton = "alerte"; indice.textContent = $("aide-moteur").textContent; }
+    else if (etat.selection && !peutLancer()) { indice.dataset.ton = "alerte"; indice.textContent = raisonBlocage(); }
     else indice.textContent = Ecoute.disponible ? `${raccourci} lance la mission. Vous pouvez aussi me parler : « lance la démo ».`
       : `${raccourci} lance la mission.`;
   }
@@ -762,12 +818,16 @@ URL : https://www.saucedemo.com/
   async function lancer() {
     if (!peutLancer()) {
       if (etat.mission && !etat.mission.fini) annoncer("Une mission est déjà en cours.");
-      else annoncer($("aide-moteur").textContent || "Choisissez d'abord un cas de test.", { important: true });
+      else annoncer(raisonBlocage(), { important: true });
       return;
     }
     const corps = { provider: etat.moteur, headed: $("option-fenetre").checked, pause: parseFloat($("option-pause").value) || 0 };
     if (etat.selection.custom) corps.markdown = $("editeur-texte").value;
-    else corps.case = etat.selection.id;
+    else {
+      corps.case = etat.selection.id;
+      const adresse = $("url-mission").value.trim();
+      if (adresse !== etat.selection.url) corps.url = adresse;  // même cas, autre site
+    }
     try {
       const reponse = await api("/api/missions", { method: "POST", corps });
       suivre(reponse.id);

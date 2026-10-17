@@ -207,6 +207,8 @@ class AlfredHandler(BaseHTTPRequestHandler):
         try:
             body = self._body()
             case, scenario = self._case_from(body)
+            if body.get("url"):  # champ « Site à tester » : même cas, autre adresse
+                case = case.with_url(str(body["url"]))
             provider = self._provider_from(body.get("provider", "gemini"), scenario)
             pause = min(max(float(body.get("pause") or 0), 0.0), MAX_PAUSE)
             mission = self.server.missions.start(case, provider, headed=bool(body.get("headed")), pause_s=pause)

@@ -69,3 +69,19 @@ def test_verification_negative():
 def test_reponses_invalides(raw, message):
     with pytest.raises(ValueError, match=message):
         parse_action(raw)
+
+
+def test_meme_cas_sur_une_autre_adresse():
+    """Le champ « Site à tester » et l'option --url : même cas, autre site, fichier inchangé."""
+    case = parse_test_case(CASE)
+    recette = case.with_url("http://192.168.1.20:8080/")
+    assert recette.url == "http://192.168.1.20:8080/"
+    assert "URL : http://192.168.1.20:8080/" in recette.text  # le modèle lit la bonne adresse
+    assert "saucedemo" not in recette.text
+    assert recette.title == case.title and case.url == "https://www.saucedemo.com/"
+
+
+@pytest.mark.parametrize("url", ["", "www.saucedemo.com", "ftp://serveur/fichier", "http://", "https:// espace.fr"])
+def test_adresse_refusee(url):
+    with pytest.raises(ValueError, match="http:// ou https://"):
+        parse_test_case(CASE).with_url(url)

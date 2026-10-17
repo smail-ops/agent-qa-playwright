@@ -38,6 +38,19 @@ class TestCase:
         """Version du titre utilisable dans un nom de fichier ou de fonction."""
         return slugify(self.title)
 
+    def with_url(self, url: str) -> TestCase:
+        """Le même cas de test sur une autre adresse : autre site, recette, adresse IP.
+
+        La ligne « URL : » du texte change aussi, pour que le modèle lise la bonne adresse.
+        Le fichier du cas de test n'est pas modifié.
+        """
+        url = url.strip()
+        if not re.fullmatch(r"https?://[^\s/?#]+\S*", url, flags=re.IGNORECASE):
+            raise ValueError("L'adresse à tester doit commencer par http:// ou https://, par exemple https://www.saucedemo.com/")
+        text = re.sub(r"^(\s*URL\s*:\s*)\S+", lambda m: m.group(1) + url, self.text, count=1,
+                      flags=re.MULTILINE | re.IGNORECASE)
+        return TestCase(title=self.title, url=url, text=text)
+
 
 def slugify(text: str, max_length: int = 60) -> str:
     """Transforme « CT-01 Connexion réussie » en « ct_01_connexion_reussie »."""

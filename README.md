@@ -80,7 +80,7 @@ python -m agent cas_de_test/demo/CT-00_demo_locale.md --provider scripted --scen
 
 Un exemple du rapport obtenu est visible dans [`docs/exemple-demo`](docs/exemple-demo/rapport.md).
 
-Encore plus simple : `python -m alfred` ouvre l'interface Alfred, qui sert elle-même le site de démo (un seul terminal suffit).
+Encore plus simple : `python -m alfred` ouvre l'interface Alfred, qui sert elle-même le site de démo (un seul terminal suffit). Sur Mac, un double-clic sur `Alfred.command` fait la même chose.
 
 ## Lancer un vrai test avec l'IA
 
@@ -94,6 +94,7 @@ python -m agent cas_de_test/CT-01_connexion_valide.md --headed --pause 4
 - `--pause 4` attend 4 secondes entre deux actions, pour rester dans les quotas de l'offre gratuite de Gemini.
 - `--provider claude` utilise Claude à la place de Gemini (clé `ANTHROPIC_API_KEY` dans `.env`).
 - `--model` choisit un modèle précis, par exemple `--model gemini-3.8-flash`. Par défaut, l'agent utilise l'alias `gemini-flash-latest`, qui suit le dernier modèle Flash de Google.
+- `--url` lance le cas sur une autre adresse (recette, préproduction, adresse IP) sans modifier son fichier, par exemple `--url http://192.168.1.20:8080/`.
 
 Le programme renvoie un code de sortie exploitable en intégration continue : 0 pour PASS, 1 pour FAIL, 2 pour BLOQUÉ, 3 pour une erreur de configuration.
 
@@ -105,11 +106,12 @@ Alfred est une interface web locale. On choisit un cas de test (ou on l'écrit),
 python -m alfred
 ```
 
-La page s'ouvre toute seule sur http://127.0.0.1:8765. Alfred sert aussi le site de démo : le cas CT-00 fonctionne avec le moteur « Démo sans IA », sans clé d'API.
+Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du projet. La page s'ouvre toute seule sur http://127.0.0.1:8765. Alfred sert aussi le site de démo : le cas CT-00 fonctionne avec le moteur « Démo sans IA », sans clé d'API.
 
 - **Le cadran** : l'anneau extérieur compte les actions (20 au plus), en vert les vérifications réussies et en rouge les échecs. L'anneau intérieur montre la phase en cours : observer, réfléchir, agir.
 - **La voix** : Alfred annonce ce qu'il fait, puis le verdict. Les mots de passe ne sont jamais lus ni affichés.
 - **Les commandes vocales** : bouton micro, puis « lance la démo », « lance le cas 2 », « arrête » ou « ouvre le rapport ».
+- **Le site à tester** : le champ sous le titre du cas remplace son adresse le temps d'une mission (autre site, recette, adresse IP). Le fichier du cas ne change pas.
 - **Écrire un cas de test** directement dans la page, le lancer, puis l'enregistrer dans `cas_de_test/`.
 - **Réglages** : votre prénom, pour qu'Alfred vous salue, et le choix de sa voix.
 
@@ -206,6 +208,7 @@ GitHub Actions lance ces tests à chaque push, puis rejoue le test Robot de la d
 | `alfred/missions.py` | missions lancées depuis l'interface, une à la fois |
 | `alfred/narration.py` | phrases affichées et prononcées par Alfred |
 | `alfred/static/index.html` | l'interface : cadran, voix, commandes vocales, journal de mission |
+| `Alfred.command` | lanceur d'Alfred pour macOS, en double-clic |
 
 ## Dépannage
 

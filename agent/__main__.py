@@ -30,6 +30,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--provider", choices=["gemini", "claude", "scripted"], default=None,
                         help="modèle à utiliser (par défaut : AGENT_PROVIDER ou gemini)")
     parser.add_argument("--model", help="nom précis du modèle (sinon GEMINI_MODEL ou CLAUDE_MODEL)")
+    parser.add_argument("--url", help="adresse à tester à la place de celle du cas de test (autre site, recette, adresse IP)")
     parser.add_argument("--scenario", help="fichier JSON du scénario, pour le fournisseur scripted")
     parser.add_argument("--max-steps", type=int, default=20, help="nombre maximal d'actions (20 par défaut)")
     parser.add_argument("--pause", type=float, default=None,
@@ -47,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         case = load_test_case(args.cas_de_test)
+        if args.url:
+            case = case.with_url(args.url)
         provider = make_provider(provider_name, model=args.model, scenario=args.scenario)
     except (OSError, ValueError, ProviderError) as exc:
         print(f"Erreur : {exc}", file=sys.stderr)

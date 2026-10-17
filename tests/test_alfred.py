@@ -134,6 +134,19 @@ def test_mission_complete_en_direct(alfred):
     assert status == 200 and image.startswith(b"\x89PNG")
 
 
+def test_site_a_tester(alfred, demo_url):
+    """Le même cas sur une autre adresse : le fichier du cas ne change pas."""
+    autre = f"{demo_url}/index.html?env=recette"
+    corps = {"case": "demo/CT-00_demo_locale.md", "provider": "scripted", "url": autre}
+    status, data = request(alfred, "POST", "/api/missions", corps)
+    assert status == 201, data
+    events = read_events(alfred, data["id"])
+    assert events[0]["url"] == autre
+    first_step = next(e for e in events if e["type"] == "step")
+    assert first_step["label"] == f"Ouverture de {autre}"
+    assert events[-1]["status"] == "PASS"
+    assert "env=recette" not in (alfred.cases_dir / "demo" / "CT-00_demo_locale.md").read_text(encoding="utf-8")
+
 def test_une_seule_mission_a_la_fois_et_arret(alfred):
     corps = {"case": "demo/CT-00_demo_locale.md", "provider": "scripted", "pause": 5}
     status, data = request(alfred, "POST", "/api/missions", corps)
@@ -167,6 +180,7 @@ def test_reprise_apres_rechargement(alfred):
         ({"case": "CT-01_autre.md", "provider": "gemini"}, "GEMINI_API_KEY"),
         ({"case": "CT-01_autre.md", "provider": "inconnu"}, "Moteur inconnu"),
         ({}, "Choisissez"),
+        ({"case": "demo/CT-00_demo_locale.md", "provider": "scripted", "url": "ftp://serveur"}, "http:// ou https://"),
     ],
 )
 def test_demandes_refusees(alfred, monkeypatch, corps, message):
@@ -251,3 +265,27 @@ def test_interface_explique_un_moteur_indisponible(alfred, pw_page, monkeypatch)
     expect(pw_page.locator("#bouton-lancer")).to_be_disabled()
     expect(pw_page.locator('input[name="moteur"][value="scripted"]')).to_be_disabled()
     expect(pw_page.locator("#indice")).to_contain_text("GEMINI_API_KEY")
+
+
+def test_interface_site_a_tester(alfred, pw_page, demo_url):
+    pw_page.goto(alfred.url)
+    champ = pw_page.locator("#url-mission")
+    expect(champ).to_have_value(f"{demo_url}/index.html")
+    expect(pw_page.locator("#url-retablir")).to_be_hidden()
+
+    champ.fill("pas une adresse")
+    expect(pw_page.locator("#bouton-lancer")).to_be_disabled()
+    expect(pw_page.locator("#indice")).to_contain_text("http:// ou https://")
+
+    autre = f"{demo_url}/index.html?env=recette"
+    champ.fill(autre)
+    expect(pw_page.locator("#url-note")).to_contain_text("Adresse modifiée pour cette mission")
+    expect(pw_page.locator("#url-retablir")).to_be_visible()
+    pw_page.fill("#option-pause", "0")
+    pw_page.click("#bouton-lancer")
+    expect(pw_page.locator(".verdict-mot")).to_have_text("Réussi", timeout=30_000)
+    expect(pw_page.locator(".etape-libelle").first).to_have_text(f"Ouverture de {autre}")
+
+    pw_page.click("#url-retablir")
+    expect(champ).to_have_value(f"{demo_url}/index.html")
+    expect(pw_page.locator("#url-retablir")).to_be_hidden()
