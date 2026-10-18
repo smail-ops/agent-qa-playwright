@@ -9,8 +9,7 @@ Exemple de test produit :
 
     *** Test Cases ***
     CT-01 Connexion avec un utilisateur valide
-        Open Browser    https://www.saucedemo.com/    ${BROWSER}
-        Set Window Size    1280    800
+        Ouvrir le navigateur    https://www.saucedemo.com/
         Input Text    css:#user-name    standard_user
         Click Element    css:[data-test="login-button"]
         Wait Until Location Contains    inventory
@@ -27,6 +26,13 @@ Les vérifications sur un élément (valeur d'un champ, option choisie, bouton
 grisé, case cochée) utilisent les mots-clés de SeleniumLibrary, dans
 « Wait Until Keyword Succeeds » : comme l'agent, le test laisse quelques
 secondes à la page pour atteindre l'état attendu.
+
+« Ouvrir le navigateur », écrit lui aussi dans le fichier, ouvre le navigateur
+à la taille de la fenêtre de l'agent. Avec Chrome, il coupe le gestionnaire de
+mots de passe : après une connexion avec un mot de passe connu des fuites de
+données, comme secret_sauce sur SauceDemo, Chrome affiche une alerte « mot de
+passe compromis » qui interrompt le test. Le Chromium de Playwright, utilisé
+par l'agent, n'a pas cette alerte.
 """
 
 from __future__ import annotations
@@ -41,6 +47,24 @@ if TYPE_CHECKING:
 SEP = "    "  # Robot Framework sépare les arguments par au moins deux espaces
 WINDOW_SIZE = ("1280", "800")  # même taille de fenêtre que l'agent
 
+# Préférences de Chrome pour les tests rejoués : ni gestionnaire de mots de passe, ni alerte
+# « mot de passe compromis » après une connexion (voir le mot-clé « Ouvrir le navigateur »).
+CHROME_PREFS = {
+    "credentials_enable_service": False,
+    "profile.password_manager_enabled": False,
+    "profile.password_manager_leak_detection": False,
+}
+CHROME_NAMES = ("chrome", "googlechrome", "gc", "headlesschrome")  # noms qui ouvrent Chrome dans SeleniumLibrary
+
+_PREFS = "{" + ", ".join(f'"{name}": {value}' for name, value in CHROME_PREFS.items()) + "}"
+VARIABLES = f"""*** Variables ***
+${{BROWSER}}        chrome
+# Attente maximale d'un élément, d'un texte ou d'une URL.
+${{DELAI}}          5s
+# Préférences de Chrome, utilisées par le mot-clé « Ouvrir le navigateur ».
+${{OPTIONS_CHROME}}    add_experimental_option("prefs", {_PREFS})
+"""
+
 _HEADER = """*** Settings ***
 Documentation     Test généré automatiquement par agent-qa-playwright.
 ...               Cas de test : {title}
@@ -49,14 +73,25 @@ Documentation     Test généré automatiquement par agent-qa-playwright.
 Library           SeleniumLibrary    timeout=${{DELAI}}    implicit_wait=${{DELAI}}
 Test Teardown     Close Browser
 
-*** Variables ***
-${{BROWSER}}        chrome
-# Attente maximale d'un élément, d'un texte ou d'une URL.
-${{DELAI}}          5s
-
+{variables}
 *** Test Cases ***
 {name}
 {body}
+"""
+
+_OPEN = f"""Ouvrir le navigateur
+    [Documentation]    Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.
+    ...    Avec Chrome, le gestionnaire de mots de passe est coupé (variable OPTIONS_CHROME) : après une connexion
+    ...    avec un mot de passe connu des fuites de données, comme secret_sauce, Chrome afficherait une alerte
+    ...    « mot de passe compromis » qui interrompt le test.
+    [Arguments]    ${{url}}
+    ${{chrome}}=    Evaluate    $BROWSER.lower().replace(" ", "") in {CHROME_NAMES!r}
+    IF    ${{chrome}}
+        Open Browser    ${{url}}    ${{BROWSER}}    options=${{OPTIONS_CHROME}}
+    ELSE
+        Open Browser    ${{url}}    ${{BROWSER}}
+    END
+    Set Window Size    {WINDOW_SIZE[0]}    {WINDOW_SIZE[1]}
 """
 
 _SHOWS = """La page affiche
@@ -185,8 +220,9 @@ def generate_robot(run: RunResult) -> str:
 
     def open_browser(url: str) -> None:
         nonlocal browser_open
-        lines.append(_keyword("Open Browser", robot_arg(url), "${BROWSER}"))
-        lines.append(_keyword("Set Window Size", *WINDOW_SIZE))
+        lines.append(_keyword("Ouvrir le navigateur", robot_arg(url)))
+        if _OPEN not in keywords:
+            keywords.insert(0, _OPEN)
         browser_open = True
 
     for step in run.steps:
@@ -250,7 +286,7 @@ def generate_robot(run: RunResult) -> str:
             keywords.append(block)
 
     body = "\n".join(lines) or _keyword("No Operation")
-    code = _HEADER.format(title=robot_arg(run.case.title), name=robot_arg(run.case.title), body=body)
+    code = _HEADER.format(title=robot_arg(run.case.title), variables=VARIABLES, name=robot_arg(run.case.title), body=body)
     if keywords:
         code += "\n*** Keywords ***\n" + "\n".join(keywords)
     return code

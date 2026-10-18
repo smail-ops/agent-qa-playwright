@@ -316,7 +316,8 @@ Le générateur adapte le parcours à Selenium :
 
 - les sélecteurs propres à Playwright (`:has-text`, plusieurs éléments identiques) deviennent des XPath ;
 - le texte attendu est écrit tel qu'il apparaît sur la page, et pour une liste déroulante c'est la valeur réelle de l'option qui est utilisée ;
-- les vérifications de texte passent par des mots-clés écrits dans le fichier (`La page affiche`, `La page n'affiche pas`, `La page affiche dans l'ordre`, `La page affiche ce nombre de fois`). Comme l'agent, ils ne regardent que le texte visible. `Wait Until Page Contains` compterait aussi un message d'erreur caché dans la page, et le test passerait à tort.
+- les vérifications de texte passent par des mots-clés écrits dans le fichier (`La page affiche`, `La page n'affiche pas`, `La page affiche dans l'ordre`, `La page affiche ce nombre de fois`). Comme l'agent, ils ne regardent que le texte visible. `Wait Until Page Contains` compterait aussi un message d'erreur caché dans la page, et le test passerait à tort ;
+- le navigateur s'ouvre avec le mot-clé `Ouvrir le navigateur`, lui aussi écrit dans le fichier. Avec Chrome, il coupe le gestionnaire de mots de passe (variable `${OPTIONS_CHROME}`) : sinon, après une connexion avec un mot de passe connu des fuites de données, comme `secret_sauce`, Chrome affiche une alerte « mot de passe compromis » qui interrompt le test.
 
 Exemple : [`docs/exemple-demo/ct_00_demo_locale_connexion_et_panier.robot`](docs/exemple-demo/ct_00_demo_locale_connexion_et_panier.robot).
 
@@ -389,7 +390,7 @@ Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses d
 
 Les tests d'Alfred vérifient l'API, le flux en direct, l'arrêt d'une mission, la mémoire, l'annonce du diagnostic, les propositions, la conversation libre (contexte envoyé au modèle, actions contrôlées, mot de passe jamais prononcé), les protections du serveur et la compréhension des commandes vocales, puis pilotent dans l'interface des missions complètes, une analyse de site et un cas de test dicté puis lancé sur « vas-y ».
 
-GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des deux démos avec le vrai SeleniumLibrary et Chrome.
+GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des deux démos avec le vrai SeleniumLibrary et Chrome. Si un test Robot échoue, son nom et son message s'affichent sur la page du run, lisibles sans être connecté à GitHub.
 
 ## Structure du code
 
@@ -414,6 +415,7 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 | `agent/codegen_robot.py` | génération du test Robot Framework (SeleniumLibrary) |
 | `agent/codegen_gherkin.py` | génération du scénario Gherkin et de sa version Robot Framework |
 | `tests/robot_double/` | double de SeleniumLibrary piloté par Playwright, pour tester les fichiers `.robot` sans Chrome |
+| `.github/robot_echecs.py` | dans GitHub Actions, affiche les tests Robot en échec sur la page du run |
 | `demo_site/` | boutique de démonstration : connexion, produits, tri, formulaire de commande |
 | `alfred/server.py` | serveur local d'Alfred : API, flux d'événements en direct, protections |
 | `alfred/missions.py` | missions lancées depuis l'interface, une à la fois |
@@ -435,6 +437,7 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 | `Executable doesn't exist` | lance `playwright install chromium` |
 | `robot: command not found` | active l'environnement (`source .venv/bin/activate`), puis `pip install -r requirements.txt` |
 | `SessionNotCreatedException` avec `robot` | Chrome n'est pas installé ou n'a pas pu démarrer : installe Google Chrome, ou essaie `--variable BROWSER:firefox` |
+| Avec Chrome, un test Robot s'interrompt juste après la connexion | Chrome a affiché son alerte « mot de passe compromis » (mot de passe connu des fuites, comme `secret_sauce`). Les tests générés maintenant l'évitent : relance le cas pour régénérer un ancien fichier `.robot` |
 | `Le port 8765 est déjà utilisé` | Alfred tourne déjà : ouvre http://127.0.0.1:8765, ou lance `python -m alfred --port 8766` |
 | Alfred ne parle pas | clique d'abord dans la page (le navigateur bloque le son avant toute action), vérifie que « Voix activée » est allumé, et installe une voix française dans Réglages Système, Accessibilité, Contenu énoncé |
 | Alfred répond qu'il lui faut une clé | une phrase qui n'est pas une commande simple part au modèle : ajoute `GEMINI_API_KEY` (ou `ANTHROPIC_API_KEY`) dans `.env`, puis relance Alfred. Sans clé, dis par exemple « lance la démo » |

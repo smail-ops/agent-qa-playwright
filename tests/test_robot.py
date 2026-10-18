@@ -4,13 +4,15 @@ Les tests qui exécutent le fichier .robot utilisent le vrai Robot Framework,
 avec un double de SeleniumLibrary piloté par Playwright (dossier robot_double).
 """
 
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from agent.codegen_robot import generate_robot, robot_arg
+from agent.codegen_robot import CHROME_PREFS, VARIABLES, generate_robot, robot_arg
 from agent.providers import ScriptedProvider
 from agent.runner import Agent
 from agent.testcase import parse_test_case
@@ -80,7 +82,8 @@ def test_test_robot_genere(pw_page, demo_url, tmp_path):
     code = generate_robot(result)
 
     assert "Library           SeleniumLibrary    timeout=${DELAI}    implicit_wait=${DELAI}" in code
-    assert f"    Open Browser    {demo_url}/index.html    ${{BROWSER}}\n    Set Window Size    1280    800" in code
+    assert f"    Ouvrir le navigateur    {demo_url}/index.html\n    Input Text    css:#user-name    standard_user" in code
+    assert code.count("\nOuvrir le navigateur\n") == 1 and "    Set Window Size    1280    800\n" in code
     assert "    Input Text    css:#user-name    standard_user" in code
     assert '    Click Element    css:[data-test="login-button"]' in code
     assert "    Wait Until Location Contains    inventory" in code
@@ -190,3 +193,69 @@ def test_etat_coche_selon_le_type_de_case(tmp_path):
     code = "*** Settings ***\nLibrary    SeleniumLibrary\n\n*** Variables ***\n${BROWSER}    chrome\n\n*** Test Cases ***\nCases\n"
     result = run_robot(code + "\n".join(lines) + "\n", tmp_path)
     assert result.returncode == 0, result.stdout
+
+
+def test_options_chrome_lues_par_seleniumlibrary():
+    """Le vrai SeleniumLibrary lit OPTIONS_CHROME : Chrome s'ouvre sans gestionnaire de mots de passe.
+
+    Sans ces préférences, après une connexion avec un mot de passe connu des fuites de données
+    (secret_sauce), Chrome affiche une alerte « mot de passe compromis » qui interrompt le test.
+    """
+    webdrivertools = pytest.importorskip("SeleniumLibrary.keywords.webdrivertools")
+    value = re.search(r"^\$\{OPTIONS_CHROME\} {2,}(.+)$", VARIABLES, re.M).group(1)
+    for browser in ("chrome", "headless_chrome"):
+        options = webdrivertools.SeleniumOptions().create(browser, value)
+        assert options.experimental_options["prefs"] == CHROME_PREFS
+
+
+def _messages(output: Path) -> list[str]:
+    """Messages écrits dans le journal Robot (output.xml)."""
+    from robot.api import ExecutionResult, ResultVisitor
+
+    class Messages(ResultVisitor):
+        def __init__(self):
+            self.found = []
+
+        def visit_message(self, message):
+            self.found.append(message.message)
+
+    visitor = Messages()
+    ExecutionResult(str(output)).visit(visitor)
+    return visitor.found
+
+
+@pytest.mark.parametrize("browser, chrome", [("chrome", True), ("headlesschrome", True), ("Google Chrome", True),
+                                             ("firefox", False)])
+def test_preferences_passees_seulement_a_chrome(pw_page, demo_url, tmp_path, browser, chrome):
+    """« Ouvrir le navigateur » donne OPTIONS_CHROME à Chrome, et rien à Firefox (qui ne les comprendrait pas)."""
+    connexion = PARCOURS[:4] + [{"action": "finish", "args": {"status": "PASS", "summary": "Connecté"}}]
+    result = run_robot(generate_robot(run_scenario(pw_page, demo_url, tmp_path, connexion)), tmp_path,
+                       "--variable", f"BROWSER:{browser}")
+    assert result.returncode == 0, result.stdout
+    opened = [m for m in _messages(tmp_path / "robot" / "output.xml") if m.startswith("Navigateur : ")]
+    expected = f"Navigateur : {browser}, options : " + ('add_experimental_option("prefs", ' if chrome else "None")
+    assert len(opened) == 1 and opened[0].startswith(expected), opened
+
+
+def test_echecs_robot_affiches_sur_la_page_du_run(tmp_path):
+    """GitHub Actions : chaque test Robot en échec devient une annotation, lisible sans se connecter."""
+    pytest.importorskip("robot")
+    suite = tmp_path / "ct_90_demo.robot"
+    suite.write_text("*** Test Cases ***\nCT-90 Démo : tri, panier\n    Should Be Equal    a    b    msg=Valeur 100% fausse"
+                     "    values=False\n\nRéussi\n    No Operation\n", encoding="utf-8")
+    subprocess.run([sys.executable, "-m", "robot", "--outputdir", str(tmp_path / "out"), "--consolecolors", "off", str(suite)],
+                   capture_output=True, text=True, timeout=120)
+    script = Path(__file__).resolve().parent.parent / ".github" / "robot_echecs.py"
+    summary = tmp_path / "resume.md"
+
+    def run(output: Path) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(script), str(output)], capture_output=True, text=True, timeout=60,
+                              env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary)})
+
+    result = run(tmp_path / "out" / "output.xml")
+    assert result.returncode == 0, result.stderr
+    # Les « : » et « , » du titre et le « % » du message sont échappés, comme le demande GitHub
+    assert result.stdout.splitlines() == ["::error title=Robot %3A CT-90 Démo %3A tri%2C panier::ct_90_demo.robot : Valeur 100%25 fausse"]
+    assert "| CT-90 Démo : tri, panier | ct_90_demo.robot | Valeur 100% fausse |" in summary.read_text(encoding="utf-8")
+    absent = run(tmp_path / "absent.xml")
+    assert absent.returncode == 0 and absent.stdout.startswith("::warning title=Robot Framework::")

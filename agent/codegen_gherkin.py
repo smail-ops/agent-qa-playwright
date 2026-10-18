@@ -27,7 +27,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .actions import STATE_LABELS
-from .codegen_robot import _COUNT, _HIDES, _ORDER, _SHOWS, WINDOW_SIZE, _state_keyword, robot_locator
+from .codegen_robot import _COUNT, _HIDES, _OPEN, _ORDER, _SHOWS, VARIABLES, _state_keyword, robot_locator
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -47,11 +47,7 @@ Documentation     Scénario Gherkin généré automatiquement par agent-qa-playw
 Library           SeleniumLibrary    timeout=${{DELAI}}    implicit_wait=${{DELAI}}
 Test Teardown     Close Browser
 
-*** Variables ***
-${{BROWSER}}        chrome
-# Attente maximale d'un élément, d'un texte ou d'une URL.
-${{DELAI}}          5s
-
+{variables}
 *** Test Cases ***
 {name}
 {body}
@@ -61,8 +57,7 @@ ${{DELAI}}          5s
 
 # Phrases communes à tous les scénarios : mot-clé -> lignes du mot-clé, et blocs dont il a besoin
 _COMMON = {
-    "open": ('je suis sur la page "${url}"',
-             ["Open Browser    ${url}    ${BROWSER}", f"Set Window Size    {WINDOW_SIZE[0]}    {WINDOW_SIZE[1]}"], None),
+    "open": ('je suis sur la page "${url}"', ["Ouvrir le navigateur    ${url}"], _OPEN),
     "goto": ('je vais sur la page "${url}"', ["Go To    ${url}"], None),
     "shows": ('la page affiche "${texte}"', ["La page affiche    ${texte}"], _SHOWS),
     "hides": ('la page n\'affiche pas "${texte}"', ["La page n'affiche pas    ${texte}"], _HIDES),
@@ -269,6 +264,7 @@ def generate_bdd_robot(run: RunResult) -> str:
     code = _HEADER.format(
         title=_cell(_clean(run.case.title)),
         feature=feature_filename(run),
+        variables=VARIABLES,
         name=_cell(_clean(run.case.title)),
         body="\n".join(body) or f"{SEP}No Operation",
     )

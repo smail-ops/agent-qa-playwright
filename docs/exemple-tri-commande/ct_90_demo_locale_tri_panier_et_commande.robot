@@ -10,11 +10,12 @@ Test Teardown     Close Browser
 ${BROWSER}        chrome
 # Attente maximale d'un élément, d'un texte ou d'une URL.
 ${DELAI}          5s
+# Préférences de Chrome, utilisées par le mot-clé « Ouvrir le navigateur ».
+${OPTIONS_CHROME}    add_experimental_option("prefs", {"credentials_enable_service": False, "profile.password_manager_enabled": False, "profile.password_manager_leak_detection": False})
 
 *** Test Cases ***
 CT-90 Démo locale : tri, panier et commande
-    Open Browser    http://localhost:8000/index.html    ${BROWSER}
-    Set Window Size    1280    800
+    Ouvrir le navigateur    http://localhost:8000/index.html
     Input Text    css:#user-name    standard_user
     Input Text    css:#password    secret_sauce
     Click Element    css:[data-test="login-button"]
@@ -31,6 +32,20 @@ CT-90 Démo locale : tri, panier et commande
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Textfield Value Should Be    css:#code-postal    ${EMPTY}
 
 *** Keywords ***
+Ouvrir le navigateur
+    [Documentation]    Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.
+    ...    Avec Chrome, le gestionnaire de mots de passe est coupé (variable OPTIONS_CHROME) : après une connexion
+    ...    avec un mot de passe connu des fuites de données, comme secret_sauce, Chrome afficherait une alerte
+    ...    « mot de passe compromis » qui interrompt le test.
+    [Arguments]    ${url}
+    ${chrome}=    Evaluate    $BROWSER.lower().replace(" ", "") in ('chrome', 'googlechrome', 'gc', 'headlesschrome')
+    IF    ${chrome}
+        Open Browser    ${url}    ${BROWSER}    options=${OPTIONS_CHROME}
+    ELSE
+        Open Browser    ${url}    ${BROWSER}
+    END
+    Set Window Size    1280    800
+
 La page affiche ce nombre de fois
     [Documentation]    Attend que le texte soit affiché exactement ce nombre de fois.
     ...    La casse et les espaces ne comptent pas.

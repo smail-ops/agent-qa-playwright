@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 
 from playwright.sync_api import expect, sync_playwright
+from robot.api import logger
 from robot.utils import timestr_to_secs
 
 
@@ -27,7 +28,10 @@ class SeleniumLibrary:
         self._implicit_wait_ms = timestr_to_secs(implicit_wait) * 1000
         self._playwright = self._browser = self._page = None
 
-    def open_browser(self, url: str, browser: str = "firefox"):
+    def open_browser(self, url: str, browser: str = "firefox", options=None):
+        # options : préférences de Chrome (OPTIONS_CHROME), sans objet pour le Chromium de Playwright.
+        # Leur syntaxe est contrôlée avec le vrai SeleniumLibrary dans test_robot.py.
+        logger.info(f"Navigateur : {browser}, options : {options}")
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch()
         self._page = self._browser.new_page()
