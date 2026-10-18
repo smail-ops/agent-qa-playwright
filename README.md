@@ -13,6 +13,7 @@ On lui donne l'adresse d'un site, ou un cas de test écrit en français comme da
 | **Industrialiser** | Chaque exécution génère un test **pytest-playwright**, un test **Robot Framework** (SeleniumLibrary) et un **scénario Gherkin** exécutable. Un parcours réussi est **mémorisé** et rejoué sans IA ; si le site change, l'IA répare le parcours (**auto-réparation**). |
 | **Analyser** | Quand un test échoue, il rédige la **fiche d'anomalie** (étapes pour reproduire, résultat obtenu et attendu, capture), avec un diagnostic de l'IA présenté comme un avis à confirmer. |
 | **Piloter** | **Alfred**, une interface vocale, commente la mission en direct et répond aux questions : « pourquoi le dernier test a échoué ? », « refais le test de connexion sur le site de recette ». |
+| **Se mesurer** | Une **campagne terrain** de 20 cas sur cinq sites d'entraînement, avec un verdict attendu pour chacun, et un **bilan** qui compte les verdicts justes, les faux PASS, les faux FAIL, les appels au modèle et la durée. |
 
 L'IA propose, le programme vérifie : le verdict vient toujours des vérifications réelles, jamais de l'avis du modèle (voir [Les garde-fous](#les-garde-fous)).
 
@@ -279,6 +280,51 @@ Le dossier `cas_de_test/` contient une campagne de 16 cas sur [SauceDemo](https:
 
 CT-14 et CT-16 montrent que l'agent détecte de vrais défauts : l'utilisateur de test `problem_user` de SauceDemo contient des bugs volontaires, et l'agent rédige la fiche d'anomalie. Chaque cas consomme une dizaine d'appels au modèle la première fois. Grâce à la mémoire, les exécutions suivantes d'un cas réussi n'en consomment plus aucun : avec l'offre gratuite de Gemini, lance les nouveaux cas quelques-uns à la fois.
 
+## La campagne terrain
+
+SauceDemo ne suffit pas pour juger l'agent : il faut le mesurer sur des sites qu'il ne connaît pas. Le dossier `cas_de_test/terrain/` contient une campagne de 20 cas sur cinq sites publics d'entraînement au test, quatre par site : deux parcours normaux, un cas négatif et un piège.
+
+| Site | Parcours normaux | Cas négatif | Piège |
+|---|---|---|---|
+| [Automation Exercise](https://automationexercise.com) | CT-17 recherche d'un produit, CT-18 quantité reprise dans le panier | CT-19 connexion refusée | CT-20 formulaire de contact, confirmé par une fenêtre JavaScript |
+| [ParaBank](https://parabank.parasoft.com/parabank/index.htm) | CT-21 connexion, CT-22 ouverture d'un compte épargne | CT-23 connexion refusée | CT-24 virement d'un montant négatif |
+| [OrangeHRM](https://opensource-demo.orangehrmlive.com) | CT-25 connexion, CT-26 ajout d'un employé | CT-27 connexion refusée | CT-28 filtre par une liste déroulante maison |
+| [The Internet](https://the-internet.herokuapp.com) | CT-29 connexion, CT-30 images de la galerie (avec la vision) | CT-31 connexion refusée | CT-32 éditeur de texte dans une iframe |
+| [UI Testing Playground](http://uitestingplayground.com) | CT-33 connexion, CT-34 données arrivées après 15 secondes | CT-35 connexion refusée | CT-36 composant Shadow DOM |
+
+Les pièges visent les limites connues de l'agent (iframes, Shadow DOM) et celles que la campagne doit confirmer (fenêtres JavaScript, listes déroulantes maison). Deux cas portent sur de vrais défauts des sites : les images cassées de The Internet et le virement négatif accepté par ParaBank. Les 20 cas apparaissent aussi dans Alfred.
+
+Le verdict attendu de chaque cas (PASS, FAIL ou BLOQUÉ) et sa raison sont dans un fichier à part, [`cas_de_test/terrain/campagne.md`](cas_de_test/terrain/campagne.md), jamais dans le cas lui-même : le modèle lit tout le texte d'un cas, il ne doit pas connaître la réponse. BLOQUÉ est attendu quand une limite connue empêche l'agent de faire une étape : le bon réflexe est alors de le dire, plutôt que d'accuser le site ou d'annoncer un succès.
+
+La campagne se lance un site par jour, un cas après l'autre, sans la mémoire des parcours (`--sans-memoire`) pour que chaque cas mesure vraiment le modèle. Les commandes de chaque journée sont dans le fichier de campagne, par exemple :
+
+```bash
+python -m agent cas_de_test/terrain/parabank/CT-21_connexion_compte_demo.md --headed --pause 4 --sans-memoire
+```
+
+### Le bilan de la campagne
+
+```bash
+python -m agent.bilan
+```
+
+Le bilan relit les `resultat.json` du dossier `rapports/`, retient la dernière exécution de chaque cas et la compare au verdict attendu :
+
+| Résultat | Signification |
+|---|---|
+| ✅ juste | le verdict de l'agent est le verdict attendu |
+| ❌ faux PASS | l'agent conclut PASS alors qu'on attendait FAIL ou BLOQUÉ : un défaut manqué, ou un succès annoncé sans pouvoir le constater. C'est l'erreur la plus grave, car personne ne relit un test au vert |
+| ❌ faux FAIL | l'agent conclut FAIL alors qu'on attendait PASS ou BLOQUÉ : il accuse le site à tort |
+| ⚠️ BLOQUÉ à tort | l'agent ne conclut pas alors qu'on attendait PASS ou FAIL |
+| ⏸️ à relancer | l'exécution a été coupée (quota du jour, réseau, arrêt demandé) : ce n'est pas un verdict de l'agent |
+
+Il compte aussi les appels au modèle (diagnostic de la fiche d'anomalie compris) et la durée des exécutions, au total, par cas et par site. Le terminal affiche une ligne par cas. Le bilan complet est écrit dans `rapports/bilan_campagne.md` : les indicateurs, le tableau des verdicts attendus et obtenus, le détail par site et par cas (avec le lien vers chaque rapport), puis chaque écart à analyser, avec la raison attendue, la conclusion de l'agent, ses vérifications en échec et l'avis de l'IA. Les FAIL et les BLOQUÉ justes sont repris à part : le verdict est le bon, reste à vérifier qu'il l'est pour la bonne raison.
+
+- `--site parabank` ne garde qu'un site : le bilan du jour.
+- `--depuis 2026-10-23` et `--jusqua 2026-10-22` ne gardent que les exécutions d'une période : de quoi comparer la campagne avant et après une amélioration.
+- `--sortie docs/bilan_terrain.md` écrit le bilan ailleurs, par exemple pour le publier (le dossier `rapports/` est exclu de Git).
+- `--campagne` et `--rapports` changent le fichier de campagne et le dossier des rapports.
+
 ## Résultats
 
 Chaque exécution crée un dossier `rapports/<date>_<cas_de_test>/` contenant :
@@ -380,13 +426,13 @@ Avec Gemini ou Claude, le modèle reçoit ensuite les faits (cas de test, histor
 
 ## Tests du projet
 
-Les 218 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet.
+Les 275 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet.
 
 ```bash
 pytest
 ```
 
-Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses du modèle, la construction des requêtes Gemini et Claude (avec ou sans image), l'observation de la page, les familles de vérifications (dont l'attente d'une page qui change encore et l'avis visuel), les règles de statut (FAIL forcé, PASS sans vérification refusé, arrêt après erreurs), la mémoire (rejeu sans appel au modèle, auto-réparation, cas modifié, autre site), la fiche d'anomalie, les tests générés, l'analyse d'un site (connexion avec un compte de test, liens risqués jamais suivis, mot de passe jamais transmis) et le contrôle des user stories et des cas proposés. Le script pytest est rejoué tel quel. Les fichiers `.robot`, classique et Gherkin, sont exécutés par Robot Framework, avec un double de SeleniumLibrary piloté par Playwright (`tests/robot_double`) pour se passer de Chrome.
+Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses du modèle, la construction des requêtes Gemini et Claude (avec ou sans image), l'observation de la page, les familles de vérifications (dont l'attente d'une page qui change encore et l'avis visuel), les règles de statut (FAIL forcé, PASS sans vérification refusé, arrêt après erreurs), la mémoire (rejeu sans appel au modèle, auto-réparation, cas modifié, autre site), la fiche d'anomalie, les tests générés, l'analyse d'un site (connexion avec un compte de test, liens risqués jamais suivis, mot de passe jamais transmis), le contrôle des user stories et des cas proposés, et le bilan de campagne (lecture du fichier de campagne, choix de la dernière exécution, classement des écarts, exécution coupée par le quota, période et site, rendu). Ils vérifient aussi la campagne terrain elle-même : vingt cas, quatre par site, un fichier par cas sur la bonne adresse, et aucun verdict ni piège annoncé dans le texte d'un cas. Le script pytest est rejoué tel quel. Les fichiers `.robot`, classique et Gherkin, sont exécutés par Robot Framework, avec un double de SeleniumLibrary piloté par Playwright (`tests/robot_double`) pour se passer de Chrome.
 
 Les tests d'Alfred vérifient l'API, le flux en direct, l'arrêt d'une mission, la mémoire, l'annonce du diagnostic, les propositions, la conversation libre (contexte envoyé au modèle, actions contrôlées, mot de passe jamais prononcé), les protections du serveur et la compréhension des commandes vocales, puis pilotent dans l'interface des missions complètes, une analyse de site et un cas de test dicté puis lancé sur « vas-y ».
 
@@ -411,12 +457,14 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 | `agent/execution.py` | exécution complète d'un cas de test, commune à la ligne de commande et à Alfred |
 | `agent/report.py` | rapport Markdown |
 | `agent/resultat.py` | bilan lisible par un programme (`resultat.json`), relu par Alfred |
+| `agent/bilan.py` | bilan d'une campagne : verdicts obtenus comparés aux verdicts attendus, appels au modèle, durée |
 | `agent/codegen.py` | génération du script pytest-playwright |
 | `agent/codegen_robot.py` | génération du test Robot Framework (SeleniumLibrary) |
 | `agent/codegen_gherkin.py` | génération du scénario Gherkin et de sa version Robot Framework |
 | `tests/robot_double/` | double de SeleniumLibrary piloté par Playwright, pour tester les fichiers `.robot` sans Chrome |
 | `.github/robot_echecs.py` | dans GitHub Actions, affiche les tests Robot en échec sur la page du run |
 | `demo_site/` | boutique de démonstration : connexion, produits, tri, formulaire de commande |
+| `cas_de_test/terrain/` | campagne terrain : 20 cas sur cinq sites, et `campagne.md`, leurs verdicts attendus |
 | `alfred/server.py` | serveur local d'Alfred : API, flux d'événements en direct, protections |
 | `alfred/missions.py` | missions lancées depuis l'interface, une à la fois |
 | `alfred/narration.py` | phrases affichées et prononcées par Alfred |
@@ -448,7 +496,8 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 - Les pages très dynamiques, les iframes et le shadow DOM ne sont pas encore gérés.
 - La première exécution d'un cas coûte un appel au modèle par action : un cas de test de 10 étapes représente une douzaine d'appels. Les suivantes, grâce à la mémoire, n'en coûtent aucun tant que le site ne change pas.
 - L'analyse d'un site suit les liens : sur une application monopage, où la navigation passe par des boutons, elle voit surtout la page d'arrivée et celle qui suit la connexion.
-- Pistes : import des cas de test depuis un export Squash TM, campagne complète avec un rapport de synthèse, campagne lancée à la voix (« relance tous les tests qui ont échoué »).
+- La campagne terrain doit confirmer d'autres limites soupçonnées : les fenêtres JavaScript (alert, confirm) que Playwright ferme d'office, les listes déroulantes maison faites de div, et l'absence d'action pour attendre (une vérification ne laisse que 3 secondes à la page).
+- Pistes : import des cas de test depuis un export Squash TM, campagne entière lancée en une commande, campagne lancée à la voix (« relance tous les tests qui ont échoué »).
 
 ## Licence
 

@@ -113,11 +113,13 @@ def test_tous_les_cas_de_test_sont_valides():
     from alfred.server import case_code
 
     dossier = Path(__file__).resolve().parent.parent / "cas_de_test"
+    # Seule exception au https : UI Testing Playground, publié en http par Inflectra (campagne terrain)
+    adresses = ("https://", "http://localhost", "http://uitestingplayground.com/")
     codes = []
     for fichier in sorted(dossier.rglob("CT-*.md")):
         case = parse_test_case(fichier.read_text(encoding="utf-8"))
         assert fichier.name.startswith(case_code(case.title) + "_"), fichier.name  # nom du fichier = identifiant
-        assert case.url.startswith(("https://", "http://localhost")), case.url
+        assert case.url.startswith(adresses), case.url
         assert "## Étapes" in case.text and "## Résultats attendus" in case.text, fichier.name
         codes.append(case_code(case.title))
     assert len(codes) >= 14 and len(codes) == len(set(codes))
