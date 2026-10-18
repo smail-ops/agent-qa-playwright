@@ -2,40 +2,44 @@
 
 ![Tests](https://github.com/smail-ops/agent-qa-playwright/actions/workflows/tests.yml/badge.svg)
 
-Un agent IA qui exécute un cas de test écrit en français, comme le ferait un testeur, puis génère le test automatisé correspondant.
+Un agent IA qui conçoit, exécute et analyse des tests web, comme le ferait un testeur.
 
-On lui donne un cas de test (étapes et résultats attendus, comme dans Squash TM). L'agent pilote un vrai navigateur avec Playwright, vérifie chaque résultat attendu et produit :
+On lui donne l'adresse d'un site, ou un cas de test écrit en français comme dans Squash TM. Il pilote un vrai navigateur avec Playwright, vérifie chaque résultat attendu, puis produit des tests automatisés qui se rejouent ensuite **sans IA** : gratuits, rapides et toujours identiques.
 
-- un **rapport** avec le statut (PASS, FAIL ou BLOQUÉ), le détail de chaque action, la raison donnée par l'IA et une capture d'écran par étape ;
-- un **script pytest-playwright** qui rejoue le test sans IA, prêt pour une campagne de non-régression ;
-- un **test Robot Framework** (SeleniumLibrary) qui rejoue le même parcours avec Selenium ;
-- un **scénario Gherkin** en français (Étant donné que, Quand, Alors), avec sa version exécutable par Robot Framework ;
-- une **fiche d'anomalie** quand le test échoue : étapes pour reproduire, résultat obtenu et attendu, capture, et un diagnostic proposé par l'IA.
+| | Ce que fait l'agent |
+|---|---|
+| **Concevoir** | À partir d'une URL, il analyse le site et propose des **user stories** avec leurs critères d'acceptation en **Gherkin**, puis les **cas de test** d'une user story. |
+| **Exécuter** | Il exécute un cas de test, en Markdown ou en Gherkin, avec six familles de vérifications (texte, URL, ordre, nombre, valeur d'un champ, état d'un bouton ou d'une case). Avec la **vision**, le modèle voit aussi l'écran. |
+| **Industrialiser** | Chaque exécution génère un test **pytest-playwright**, un test **Robot Framework** (SeleniumLibrary) et un **scénario Gherkin** exécutable. Un parcours réussi est **mémorisé** et rejoué sans IA ; si le site change, l'IA répare le parcours (**auto-réparation**). |
+| **Analyser** | Quand un test échoue, il rédige la **fiche d'anomalie** (étapes pour reproduire, résultat obtenu et attendu, capture), avec un diagnostic de l'IA présenté comme un avis à confirmer. |
+| **Piloter** | **Alfred**, une interface vocale, commente la mission en direct et répond aux questions : « pourquoi le dernier test a échoué ? », « refais le test de connexion sur le site de recette ». |
 
-L'IA sert surtout la première fois. Un parcours réussi est gardé en **mémoire** : les exécutions suivantes le rejouent sans appeler le modèle, et si le site a changé, l'IA reprend la main là où le parcours ne fonctionne plus (**auto-réparation**). Les tests générés, eux, tournent sans aucune IA : gratuits, rapides et déterministes.
+L'IA propose, le programme vérifie : le verdict vient toujours des vérifications réelles, jamais de l'avis du modèle (voir [Les garde-fous](#les-garde-fous)).
 
-L'agent aide aussi à **concevoir** les tests : à partir de l'adresse d'un site, il analyse les pages et **propose des user stories** avec leurs critères d'acceptation en Gherkin, puis **les cas de test** d'une user story. Les scénarios Gherkin retenus se lancent ensuite comme des cas de test. Avec la **vision**, le modèle voit aussi la capture d'écran de la page.
-
-L'agent se pilote en ligne de commande ou avec **Alfred**, une interface vocale qui commente la mission en direct et avec qui l'on parle librement : « pourquoi le dernier test a échoué ? », « relance le test de connexion sur le site de recette », ou un cas de test dicté à voix haute (voir [Alfred, l'interface vocale](#alfred-linterface-vocale)).
-
-![Alfred à la fin d'une mission : cadran, vue du navigateur et journal des étapes](docs/alfred.png)
+![Alfred à la fin d'une mission de démo : la liste des cas, le cadran, la vue du navigateur, le journal des étapes et les tests générés](docs/alfred.png)
 
 ## Comment ça marche
 
 ```mermaid
 flowchart LR
-    CT[Cas de test en français] --> A[Agent]
-    MEM[(Mémoire des parcours)] -. parcours connu .-> A
+    subgraph Concevoir
+        URL[Adresse du site] --> AN[Relevé des pages, sans IA]
+        AN --> US[User stories et critères Gherkin]
+        US --> CT[Cas de test]
+    end
+    CT --> A[Agent]
+    MEM[(Mémoire des parcours)] -. parcours connu, sans IA .-> A
     A -- état de la page --> M[Modèle IA : Gemini ou Claude]
     M -- action en JSON --> A
     A -- clic, saisie, vérification --> N[Navigateur Playwright]
     N -- nouvelle page --> A
-    A --> R[Rapport + captures]
     A --> S[Tests pytest, Robot Framework et Gherkin]
-    A -- échec --> F[Fiche d'anomalie]
+    A --> R[Rapport, captures, resultat.json]
+    A -- échec --> F[Fiche d'anomalie et diagnostic]
+    AL[Alfred : voix et conversation] -.-> A
 ```
 
-À chaque tour :
+À chaque tour de l'agent :
 
 1. **Observer** : l'agent liste les éléments visibles de la page (champs, boutons, liens, listes, cases à cocher) et les numérote.
 2. **Décider** : il envoie au modèle le cas de test, l'historique et cette liste. Le modèle répond par une seule action en JSON, par exemple `{"action": "fill", "args": {"ref": 1, "text": "standard_user"}}`.
@@ -227,6 +231,8 @@ L'agent peut aussi préparer les tests. Dans Alfred, le bouton « Proposer des u
 
 On coche les propositions à garder. Une user story devient un fichier `cas_de_test/US-xx_....feature`, dont chaque scénario se lance comme un cas de test. Un cas devient `cas_de_test/CT-xx_....md`, avec le prochain numéro libre.
 
+![Les user stories proposées pour le site de démo, avec leurs critères d'acceptation en Gherkin](docs/propositions.png)
+
 Pendant l'analyse, rien n'est modifié sur le site : seuls les liens du même site sont suivis, jamais ceux qui pourraient déconnecter, supprimer ou payer, et aucun bouton n'est cliqué. Pour voir les pages réservées aux utilisateurs, on peut donner un **compte de test** : Alfred remplit le formulaire de connexion de la première page. Le mot de passe sert uniquement à cette connexion : il n'est ni envoyé au modèle, ni affiché, ni enregistré. Comme le modèle ne le connaît pas, il écrit `<mot de passe>` dans ses propositions (à compléter dans le fichier), sauf si le site l'affiche en clair, comme SauceDemo.
 
 Le moteur « Démo sans IA » rejoue des réponses enregistrées pour le site de démo local : de quoi essayer sans clé d'API.
@@ -373,7 +379,7 @@ Avec Gemini ou Claude, le modèle reçoit ensuite les faits (cas de test, histor
 
 ## Tests du projet
 
-Les tests utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet.
+Les 218 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet.
 
 ```bash
 pytest
