@@ -493,11 +493,42 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 
 ## Limites et pistes
 
-- Les pages très dynamiques, les iframes et le shadow DOM ne sont pas encore gérés.
-- La première exécution d'un cas coûte un appel au modèle par action : un cas de test de 10 étapes représente une douzaine d'appels. Les suivantes, grâce à la mémoire, n'en coûtent aucun tant que le site ne change pas.
+Les limites de l'agent, relevées dans le code et, pour la plupart, vérifiées sur des pages de test. La [campagne terrain](cas_de_test/terrain/campagne.md) les mesure sur de vrais sites.
+
+**Ce que l'agent ne voit pas**
+
+- Le contenu des iframes : ni les champs, ni le texte. Une vérification « absent » y réussit donc toujours, avec un risque de faux PASS.
+- Le Shadow DOM : ni les champs, ni les boutons, ni le texte.
+- Les composants maison sans rôle standard : listes déroulantes faites de div, suggestions d'autocomplétion, calendriers.
+- Les champs sans id, nom, placeholder, aria-label ni label associé.
+- Les éditeurs riches (contenteditable), même hors iframe.
+- Un nouvel onglet : l'agent reste sur la première page.
+- Au-delà de 80 éléments par page, et de 1 500 caractères de texte envoyés au modèle.
+- La valeur d'un champ : il ne peut la vérifier qu'en donnant la valeur exacte attendue.
+- Les images, les couleurs et le canvas, sauf avec la vision, et c'est alors un avis.
+
+**Ce que l'agent ne sait pas faire**
+
+- Répondre aux fenêtres JavaScript (alert, confirm, prompt) : Playwright les ferme d'office en choisissant Annuler.
+- Attendre : il n'a pas d'action pour cela, et une vérification ne laisse que 3 secondes à la page.
+- Taper une touche (Entrée, Échap, Tab), survoler, double-cliquer, faire un clic droit, glisser-déposer ou faire défiler la page.
+- Envoyer un fichier, ou passer une authentification HTTP du navigateur.
+
+**Fiabilité et industrialisation**
+
+- Un id généré qui commence par une lettre devient le sélecteur : la mémoire et les tests générés cassent au chargement suivant.
+- Une donnée qui change à chaque exécution (code à usage unique, numéro généré) est écrite en dur dans les tests générés et dans la mémoire.
+- Chaque cas repart d'un navigateur neuf : il faut se reconnecter, et rien ne prépare ni ne nettoie les données.
+- Chromium seul, dans une fenêtre de 1280 × 800, sans mobile.
+- 20 actions au plus par cas, arrêt après 3 erreurs de suite. La première exécution d'un cas coûte un appel au modèle par action, soit une douzaine pour un cas de 10 étapes. Les suivantes n'en coûtent aucun, grâce à la mémoire, tant que le site ne change pas.
 - L'analyse d'un site suit les liens : sur une application monopage, où la navigation passe par des boutons, elle voit surtout la page d'arrivée et celle qui suit la connexion.
-- La campagne terrain doit confirmer d'autres limites soupçonnées : les fenêtres JavaScript (alert, confirm) que Playwright ferme d'office, les listes déroulantes maison faites de div, et l'absence d'action pour attendre (une vérification ne laisse que 3 secondes à la page).
-- Pistes : import des cas de test depuis un export Squash TM, campagne entière lancée en une commande, campagne lancée à la voix (« relance tous les tests qui ont échoué »).
+
+**Données sensibles**
+
+- Les mots de passe saisis apparaissent en clair dans `rapport.md`, `anomalie.md`, la mémoire et les tests générés. Alfred, lui, ne les prononce ni ne les affiche.
+- Le texte du cas, identifiants compris, et un extrait de chaque page partent chez le fournisseur du modèle. Les captures gardent ce que la page affiche.
+
+Pistes : import des cas de test depuis un export Squash TM, campagne entière lancée en une commande, campagne lancée à la voix (« relance tous les tests qui ont échoué »).
 
 ## Licence
 
