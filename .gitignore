@@ -22,3 +22,5 @@ selenium-screenshot-*.png
 
 # Propositions de l'IA (user stories et cas de test) à relire avant de les garder
 propositions/
+
+.DS_Store
