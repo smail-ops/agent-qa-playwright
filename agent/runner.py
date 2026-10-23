@@ -10,6 +10,9 @@ Si le parcours de ce cas de test est déjà en mémoire (voir memoire.py), il es
 d'abord rejoué sans le modèle. Le modèle ne prend la main que si le site a
 changé (auto-réparation).
 
+Un bandeau de cookies qui couvre la page est accepté par le programme, sans le
+modèle, avant qu'il ne regarde la page (voir cookies.py).
+
 Une interface (Alfred) peut suivre l'exécution en direct grâce à on_event,
 et demander l'arrêt grâce à stop_event.
 """
@@ -26,6 +29,7 @@ from pathlib import Path
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
 
+from . import cookies
 from .actions import Action, parse_action
 from .browser import ActionResult, Observation, execute, observe
 from .memoire import Memory, replay_action
@@ -43,7 +47,7 @@ class Step:
     result: ActionResult
     screenshot: str | None = None  # chemin relatif au dossier du rapport
     raw: str = ""  # réponse brute du modèle, utile pour comprendre une erreur
-    source: str = ""  # « memoire » si l'étape a été rejouée depuis la mémoire, sans le modèle
+    source: str = ""  # « memoire » : rejouée depuis la mémoire ; « programme » : faite sans le modèle (bandeau de cookies)
 
 
 @dataclass
@@ -115,6 +119,7 @@ class Agent:
         max_waits: int = 3,
         memory: Memory | None = None,
         vision: bool = False,
+        accept_cookies: bool = True,
     ):
         self.provider = provider
         self.max_steps = max_steps
@@ -125,6 +130,8 @@ class Agent:
         self.stop_event = stop_event  # arrêt demandé depuis l'interface
         self.memory = memory  # parcours réussis, rejoués sans le modèle
         self.vision = vision  # le modèle reçoit aussi la capture d'écran de la page
+        self.accept_cookies = accept_cookies  # bandeau de cookies accepté par le programme (sauf cas qui en parle)
+        self._cookies_on = accept_cookies
         self.system_prompt = SYSTEM_PROMPT + (VISION_PROMPT if vision else "")
         self.model_calls = 0
 
@@ -181,6 +188,24 @@ class Agent:
             screenshot = None
         return Step(number, action, result, screenshot, raw, source)
 
+    def _cookies(self, page: Page, steps: list[Step], out_dir: Path, wait_s: float = 0.0) -> None:
+        """Un bandeau de cookies couvre la page : le programme l'accepte, sans le modèle (voir cookies.py)."""
+        if not self._cookies_on or sum(1 for s in steps if s.action and s.action.name == "cookies") >= cookies.MAX_PER_RUN:
+            return
+        banner = cookies.find(page, wait_s)
+        if banner is None:
+            return
+        number = len(steps) + 1
+        action = Action("cookies", banner.args(), "Bandeau de cookies accepté par le programme, comme le ferait un testeur")
+        self._emit("phase", phase="act", number=number, action=action, observation=None)
+        result = cookies.accept(page, banner)
+        screenshot = f"captures/etape-{number:02d}.png"
+        try:
+            page.screenshot(path=str(out_dir / screenshot))
+        except PlaywrightError:
+            screenshot = None
+        self._add(steps, Step(number, action, result, screenshot, source="programme"))
+
     def _replay(self, page: Page, plan: dict, steps: list[Step], out_dir: Path) -> tuple[str | None, str, int | None]:
         """Rejoue le parcours mémorisé. Renvoie (statut, conclusion, étape de rupture).
 
@@ -190,6 +215,7 @@ class Agent:
         for entry in plan["steps"]:
             if self._stop_requested():
                 return "BLOQUE", STOPPED_SUMMARY, None
+            self._cookies(page, steps, out_dir)
             number = len(steps) + 1
             self._emit("phase", phase="observe", number=number)
             observation = observe(page)
@@ -215,6 +241,9 @@ class Agent:
         opening = Action("goto", {"url": case.url}, "Ouverture de l'URL indiquée dans le cas de test")
         steps: list[Step] = []
         self._add(steps, self._do(page, opening, None, out_dir, number=1))
+        # Le bandeau de cookies s'affiche souvent juste après la page : on l'attend s'il y a un outil de consentement
+        self._cookies_on = self.accept_cookies and cookies.wanted(case.text)
+        self._cookies(page, steps, out_dir, cookies.WAIT_S)
 
         status, summary, errors, healed_at = None, "", 0, None
         plan = self.memory.load(case) if self.memory is not None else None
@@ -223,12 +252,14 @@ class Agent:
         replayed = sum(1 for s in steps if s.source == "memoire")
 
         while status is None:
+            free = replayed + sum(1 for s in steps if s.source == "programme")  # étapes faites sans le modèle
             if self._stop_requested():
                 status, summary = "BLOQUE", STOPPED_SUMMARY
                 break
-            if len(steps) - replayed >= self.max_steps:  # les étapes rejouées ne coûtent aucun appel au modèle
+            if len(steps) - free >= self.max_steps:  # les étapes faites sans le modèle ne comptent pas
                 status, summary = "BLOQUE", f"Nombre maximal d'actions atteint ({self.max_steps})."
                 break
+            self._cookies(page, steps, out_dir)
             self._emit("phase", phase="observe", number=len(steps) + 1)
             observation = observe(page)
             if self.vision:  # le modèle voit la page comme un testeur : capture JPEG, légère

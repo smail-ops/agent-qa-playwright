@@ -110,6 +110,35 @@ class SeleniumLibrary:
                 raise AssertionError(error or f"Element '{locator}' did not appear in {delay:g} seconds.")
             self._page.wait_for_timeout(100)
 
+    def wait_until_element_is_visible(self, locator: str, timeout=None, error=None):
+        delay = timestr_to_secs(timeout) if timeout else self._timeout_ms / 1000
+        end = time.monotonic() + delay
+        while not self._visible(locator):
+            if time.monotonic() > end:
+                raise AssertionError(error or f"Element '{locator}' not visible after {delay:g} seconds.")
+            self._page.wait_for_timeout(100)
+
+    def wait_until_element_is_not_visible(self, locator: str, timeout=None, error=None):
+        delay = timestr_to_secs(timeout) if timeout else self._timeout_ms / 1000
+        end = time.monotonic() + delay
+        while self._visible(locator):
+            if time.monotonic() > end:
+                raise AssertionError(error or f"Element '{locator}' still visible after {delay:g} seconds.")
+            self._page.wait_for_timeout(100)
+
+    def set_selenium_implicit_wait(self, value: str) -> str:
+        # Comme SeleniumLibrary : renvoie l'ancienne valeur, à redonner ensuite
+        previous = f"{self._implicit_wait_ms / 1000:g} seconds"
+        self._implicit_wait_ms = timestr_to_secs(value) * 1000
+        return previous
+
+    def _visible(self, locator: str) -> bool:
+        try:
+            found = self._locate(locator)
+            return found.count() > 0 and found.first.is_visible()
+        except Exception:  # noqa: BLE001 (comme Selenium : un localisateur dom: qui échoue ne trouve rien)
+            return False
+
     def wait_until_location_contains(self, expected: str):
         expect(self._page).to_have_url(re.compile(re.escape(expected)), timeout=self._timeout_ms)
 

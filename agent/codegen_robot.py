@@ -224,6 +224,22 @@ Refuser la fenêtre
     ...    values=False    strip_spaces=True    collapse_spaces=True
 """
 
+# Bandeau de cookies : accepté par l'agent pendant l'exploration, accepté par le test s'il s'affiche
+_COOKIES = """Accepter le bandeau de cookies
+    [Documentation]    Accepte le bandeau de cookies s'il s'affiche, comme l'agent pendant l'exploration : à la première
+    ...    visite, il couvre la page et bloque les clics. S'il ne s'affiche pas (consentement déjà donné, visite
+    ...    depuis un pays hors d'Europe), il n'y a rien à faire.
+    [Arguments]    ${bouton}
+    ${affiche}=    Run Keyword And Return Status    Wait Until Element Is Visible    ${bouton}    ${DELAI}
+    IF    ${affiche}
+        Click Element    ${bouton}
+        # Sans attente implicite : une fois le bouton disparu, Selenium ne le cherche pas pendant tout le délai
+        ${attente}=    Set Selenium Implicit Wait    0s
+        Wait Until Element Is Not Visible    ${bouton}
+        Set Selenium Implicit Wait    ${attente}
+    END
+"""
+
 # Mots-clés qui lisent le texte visible : ils ont besoin de « Texte visible de la page »
 TEXT_BLOCKS = (_SHOWS, _HIDES, _ORDER, _COUNT)
 
@@ -402,7 +418,11 @@ def _step_lines(action, result, lines: list[str], enter, need) -> None:
         if element.shadow and action.name in ("click", "fill", "select"):
             # Selenium n'attend pas un élément désigné en JavaScript (dom:) : on attend qu'il apparaisse
             lines.append(_keyword("Wait Until Page Contains Element", robot_arg(robot_locator(element))))
-    if action.name == "click":
+    if action.name == "cookies":  # bandeau accepté par le programme pendant l'exploration
+        enter(None)
+        lines.append(_keyword("Accepter le bandeau de cookies", robot_arg(args["robot"])))
+        need(_COOKIES)
+    elif action.name == "click":
         lines.append(_keyword("Click Element", robot_arg(robot_locator(element))))
     elif action.name == "fill":
         if element.editable():  # Chrome ne tape dans une zone de texte riche qu'après un vrai clic

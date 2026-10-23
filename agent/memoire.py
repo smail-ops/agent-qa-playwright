@@ -79,8 +79,8 @@ class Memory:
         saved = []
         for step in steps[1:]:  # la première étape, l'ouverture de l'URL, est refaite à chaque exécution
             action, result = step.action, step.result
-            if action is None or not result.ok or action.name == "finish":
-                continue
+            if action is None or not result.ok or action.name == "finish" or step.source == "programme":
+                continue  # le bandeau de cookies est accepté par le programme à chaque exécution
             entry = {"action": action.name, "args": {k: v for k, v in action.args.items() if k != "ref"},
                      "reason": action.reason}
             if "ref" in action.args:
