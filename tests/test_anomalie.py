@@ -149,3 +149,22 @@ def test_diagnostic_avec_la_vision(echec):
     diagnose(echec, modele)
     assert [mime for mime, _ in modele.images] == ["image/png"]
     assert modele.images[0][1].startswith(b"\x89PNG")
+
+
+def test_etapes_pour_reproduire_avec_cadre_fenetre_et_attente():
+    """La réponse à une fenêtre accompagne l'action qui l'ouvre ; un élément d'un cadre cite son cadre."""
+    from agent.actions import Action
+    from agent.anomalie import reproduction_step
+    from agent.browser import ActionResult, Element
+    from agent.runner import Step
+
+    note = Element(1, "body", None, "", {"aria": "Note", "editable": True}, "#note",
+                   frame=[{"css": "#editeur", "nth": None, "label": "Éditeur"}])
+    saisie = Step(2, Action("fill", {"ref": 1, "text": "Bonjour"}), ActionResult(True, "ok", note))
+    assert reproduction_step(saisie) == "Saisir « Bonjour » dans la zone de texte « Note » du cadre « Éditeur »"
+    fenetre = {"type": "confirm", "message": "Sûr ?", "accepted": False, "text": None}
+    clic = Step(3, Action("click", {"ref": 2}), ActionResult(True, "ok", Element(2, "button", None, "Envoyer", {}, "#e"), dialog=fenetre))
+    assert reproduction_step(clic) == "Cliquer sur le bouton « Envoyer », puis répondre Annuler à la fenêtre « Sûr ? »"
+    assert reproduction_step(Step(4, Action("dialog", {"accept": True}), ActionResult(True, "ok"))) is None
+    attente = Step(5, Action("wait", {"seconds": 10, "text": "Chargé"}), ActionResult(True, "ok"))
+    assert reproduction_step(attente) == "Attendre l'affichage de « Chargé » (10 s au plus)"

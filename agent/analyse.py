@@ -27,6 +27,7 @@ from playwright.sync_api import Page, sync_playwright
 
 from .browser import Element, observe
 from .execution import VIEWPORT
+from .masquage import mask
 
 MAX_PAGES = 5  # pages analysées au plus, connexion comprise
 MAX_TEXT = 1200  # caractères de texte visible gardés par page
@@ -120,7 +121,7 @@ class SiteAnalysis:
     logged_in: bool = False
 
     def to_prompt(self) -> str:
-        """Le relevé tel que le modèle le reçoit."""
+        """Le relevé tel que le modèle le reçoit, données personnelles des pages masquées (sauf l'identifiant fourni)."""
         parts = [f"Site analysé : {self.url}", f"Pages analysées : {len(self.pages)}"]
         if self.username:
             parts.append(f"Compte de test : identifiant « {self.username} ». Le mot de passe ne t'est pas communiqué.")
@@ -128,7 +129,7 @@ class SiteAnalysis:
             parts.append(self.login)
         for number, page in enumerate(self.pages, 1):
             parts += ["", page.to_prompt(number)]
-        return "\n".join(parts)
+        return mask("\n".join(parts), self.username or "")
 
     def images(self) -> list[tuple[str, bytes]]:
         return [("image/jpeg", page.screenshot) for page in self.pages if page.screenshot][:MAX_SHOTS]
@@ -164,7 +165,7 @@ def _describe_field(element: Element, options: list[str]) -> str:
     if element.tag == "select":
         shown = f" : {', '.join(options)}" if options else ""
         return f"liste {name}{shown}"
-    if element.tag == "textarea":
+    if element.tag == "textarea" or element.editable():
         return f"zone de texte {name}"
     if kind == "password":
         return f"champ mot de passe {name}"
@@ -191,7 +192,8 @@ def summarize(page: Page, start: str, screenshot: bool = False) -> tuple[PageSum
     fields, buttons = [], []
     for element in observation.elements:
         kind = (element.type or "").lower()
-        if element.tag in ("input", "textarea", "select") and kind not in ("submit", "button", "reset", "image"):
+        if (element.tag in ("input", "textarea", "select") and kind not in ("submit", "button", "reset", "image")) \
+                or element.editable():
             fields.append(_describe_field(element, details["options"].get(str(element.ref), [])))
         elif element.tag != "a":
             buttons.append(_q(element.label()))

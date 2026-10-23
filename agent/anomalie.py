@@ -24,6 +24,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .actions import _extract_json
+from .masquage import mask
 from .prompts import describe_step
 from .providers import ProviderError
 from .runner import STOPPED_SUMMARY
@@ -84,17 +85,34 @@ def _quoted(value: str) -> str:
 
 
 def reproduction_step(step: Step) -> str | None:
-    """Une étape pour reproduire, à l'infinitif comme dans un cas de test. None pour une vérification."""
+    """Une étape pour reproduire, à l'infinitif comme dans un cas de test. None pour une vérification.
+
+    La réponse à une fenêtre JavaScript accompagne l'action qui l'a ouverte.
+    """
     action, result = step.action, step.result
-    if action is None or action.name.startswith("check_") or action.name == "finish":
+    if action is None or action.name.startswith("check_") or action.name in ("finish", "dialog"):
         return None
+    line = _action_line(action, result)
+    if line is not None and result.dialog is not None:
+        answer = "OK" if result.dialog["accepted"] else "Annuler"
+        line += f", puis répondre {answer} à la fenêtre {_quoted(' '.join(str(result.dialog['message']).split()))}"
+    return line
+
+
+def _action_line(action, result) -> str | None:
     args = action.args
     if action.name == "goto":
         return f"Ouvrir {args['url']}"
+    if action.name == "wait":
+        if "text" in args:
+            return f"Attendre l'affichage de {_quoted(args['text'])} ({args['seconds']} s au plus)"
+        return f"Attendre {args['seconds']} secondes"
     element = result.element
     if element is not None:
         noun = element.noun()[0]
         target = f"{noun} {_quoted(element.label())}"
+        if element.frame:
+            target += f" du cadre {_quoted(element.frame_label())}"
     else:
         target = f"l'élément [{args.get('ref')}]"
     if action.name == "fill":
@@ -127,17 +145,17 @@ def _system() -> str:
 
 
 def build_diagnosis_request(run: RunResult) -> str:
+    """Les faits envoyés au modèle. Comme pendant le test, les données personnelles de la page sont masquées."""
     history = "\n".join(describe_step(step) for step in run.steps)
     failed = [step.result.detail for step in run.steps if step.result.check is False]
     page = run.final_page.to_prompt(max_text=2500) if run.final_page is not None else "(non disponible)"
-    return (
-        f"## Cas de test\n{run.case.text}\n\n"
+    facts = (
         f"## Statut du test : {run.status}\n{run.summary}\n\n"
         f"## Actions réalisées\n{history}\n\n"
         f"## Vérifications en échec\n" + ("\n".join(f"- {d}" for d in failed) or "(aucune)") + "\n\n"
         f"## Page à la fin du test\n{page}\n\n"
-        "Rédige le diagnostic en JSON."
     )
+    return f"## Cas de test\n{run.case.text}\n\n{mask(facts, run.case.text)}Rédige le diagnostic en JSON."
 
 
 def parse_diagnosis(raw: str) -> dict:

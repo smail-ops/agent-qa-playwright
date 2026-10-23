@@ -4,10 +4,17 @@ Observer : on liste les éléments interactifs visibles (champs, boutons, liens)
 et on les numérote. Le modèle désigne ensuite un élément par son numéro
 (« ref ») au lieu d'inventer un sélecteur, ce qui évite les hallucinations.
 
+L'observation entre aussi dans les composants web (Shadow DOM ouvert) et dans
+les cadres (iframes), et repère les éléments cliquables sans rôle, comme les
+options d'une liste déroulante « maison » faite de div. Un éditeur de texte
+dans une iframe ou un générateur dans un composant restent visibles pour
+l'agent.
+
 Pour chaque élément, on calcule aussi un sélecteur lisible et stable
-(data-test, id, name...) et son équivalent XPath. Ils ne servent pas à
-l'agent, mais aux tests générés à la fin (pytest et Robot Framework), qui
-doivent pouvoir rejouer le parcours sans IA.
+(data-test, id, name...), son équivalent XPath et le chemin des cadres et des
+composants qui le contiennent. Ils ne servent pas à l'agent, mais aux tests
+générés à la fin (pytest et Robot Framework), qui doivent pouvoir rejouer le
+parcours sans IA.
 """
 
 from __future__ import annotations
@@ -23,10 +30,16 @@ from .actions import STATE_LABELS, Action
 
 REF_ATTR = "data-agent-ref"  # attribut temporaire posé sur chaque élément observé
 CHECK_TIMEOUT_MS = 3000  # délai laissé à la page pour atteindre l'état attendu par une vérification
+MAX_FRAMES = 6  # cadres observés au plus : au-delà, ce sont surtout des publicités et des traceurs
+MAX_FRAME_DEPTH = 3
+# Cadres de publicité ou de mesure d'audience : ignorés, ils noieraient les vrais éléments de la page
+_AD_FRAMES = re.compile(r"doubleclick|googlesyndication|googleadservices|adservice|amazon-adsystem|criteo|taboola|"
+                        r"outbrain|adnxs|facebook\.com/plugins", re.IGNORECASE)
+_AD_FRAME_NAMES = re.compile(r"^(aswift_|google_ads_iframe|google_esf|__\w+Locator$)")  # cadres de Google AdSense, du consentement
 
-# Script exécuté dans la page pour lister les éléments interactifs.
+# Script exécuté dans la page (ou dans un cadre) pour lister les éléments interactifs.
 _OBSERVE_JS = r"""
-({refAttr, max}) => {
+({refAttr, max, start}) => {
   // Une liste ou une case à cocher transparente, posée sur un habillage personnalisé,
   // reste utilisable : seuls les autres éléments transparents sont ignorés.
   const control = (el) => el.matches('select, input[type=checkbox], input[type=radio], input[type=file]');
@@ -38,14 +51,56 @@ _OBSERVE_JS = r"""
   };
   const q = (v) => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
-  // Texte du <label> associé à un champ, sans le contenu des champs qu'il englobe
-  const labelOf = (el) => {
-    const label = el.labels && el.labels[0];
-    if (!label) return null;
-    const copy = label.cloneNode(true);
-    copy.querySelectorAll('input, select, textarea, button').forEach((c) => c.remove());
-    return clean(copy.textContent).replace(/\s*:$/, '').slice(0, 80) || null;
+  // Champs, natifs ou « maison » : ce qu'un libellé peut désigner
+  const FIELD_ROLES = ['combobox', 'listbox', 'textbox', 'searchbox', 'spinbutton'];
+  const FIELDS = 'input:not([type=hidden]), select, textarea, [contenteditable=""], [contenteditable=true], ' +
+    '[role=combobox], [role=listbox], [role=textbox], [role=searchbox], [role=spinbutton], [tabindex]:not([tabindex="-1"])';
+  // Libellé posé à côté d'un champ, sans lien for/id (fréquent dans les applications, comme OrangeHRM) :
+  // le dernier <label> qui le précède dans son groupe, si aucun autre champ ne s'intercale.
+  const nearLabel = (el) => {
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 5; depth++, node = node.parentElement) {
+      const labels = Array.from(node.querySelectorAll('label'))
+        .filter((l) => (!l.control || l.control === el) && (l.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
+      if (!labels.length) continue;
+      const label = labels[labels.length - 1];
+      const next = Array.from(node.querySelectorAll(FIELDS))
+        .find((f) => label.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return next && (next === el || next.contains(el) || el.contains(next)) ? label : null;
+    }
+    return null;
   };
+  // Texte des éléments cités par aria-labelledby
+  const labelledBy = (el) => {
+    const root = el.getRootNode();
+    const ids = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+    return clean(ids.map((id) => root.getElementById(id)).filter(Boolean).map((n) => n.innerText || n.textContent).join(' '))
+      .slice(0, 80) || null;
+  };
+  // Nom d'un champ : son <label>, aria-labelledby, ou le libellé posé à côté. Sans le contenu des champs englobés.
+  const labelOf = (el, field) => {
+    const label = (el.labels && el.labels[0]) || null;
+    const textOf = (node) => {
+      const copy = node.cloneNode(true);
+      copy.querySelectorAll('input, select, textarea, button').forEach((c) => c.remove());
+      return clean(copy.textContent).replace(/\s*:$/, '').slice(0, 80) || null;
+    };
+    const near = field && !label ? nearLabel(el) : null;
+    return (label && textOf(label)) || labelledBy(el) || (near && textOf(near)) || null;
+  };
+  // Un id fabriqué à chaque chargement (« ember1234 », « a3f9c2e1b7 ») casserait les tests rejoués
+  const stableId = (id) => !!id && /^[A-Za-z][\w-]*$/.test(id) && !/\d{4,}/.test(id) && !/[0-9a-f]{8,}/i.test(id);
+  const testAttrOf = (el) => ['data-test', 'data-testid', 'data-test-id'].find((a) => el.hasAttribute(a)) || null;
+  // Classe CSS d'un élément générique (div, span...) qui le désigne de façon stable : ni chiffres (classes
+  // fabriquées, « css-1x2y3z »), ni état (« active », « is-open », « oxd-select-text--active »).
+  const GENERIC = ['div', 'span', 'li', 'td', 'p', 'img', 'svg', 'i', 'label', 'ul', 'tr', 'section', 'article'];
+  const STATE = /^(active|selected|open|opened|closed|focus|focused|hover|disabled|checked|current|show|shown|hidden|visible|expanded|collapsed)$/i;
+  const classOf = (el) => Array.from(el.classList || []).find((c) => /^[A-Za-z][A-Za-z_-]{2,}$/.test(c) && !c.includes('--')
+    && !STATE.test(c) && !/^(is|has)-/.test(c)) || null;
+  // Texte affiché d'un Shadow DOM : innerText de ses enfants visibles (document.body.innerText ne le contient pas)
+  const shownText = (root) => clean(Array.from(root.children)
+    .filter((c) => !['STYLE', 'SCRIPT', 'TEMPLATE', 'LINK'].includes(c.tagName) && getComputedStyle(c).display !== 'none')
+    .map((c) => c.innerText || '').join(' '));
 
   // Chaîne XPath 1.0 : pas d'échappement possible, on choisit les guillemets
   const xlit = (v) => {
@@ -66,23 +121,58 @@ _OBSERVE_JS = r"""
     return null;
   };
 
-  document.querySelectorAll('[' + refAttr + ']').forEach((e) => e.removeAttribute(refAttr));
-  const candidates = document.querySelectorAll(
-    'a[href], button, input:not([type=hidden]), select, textarea, ' +
-    '[role=button], [role=link], [role=checkbox], [role=tab], [onclick]'
-  );
+  // Le document, puis chaque Shadow DOM ouvert, avec le chemin des hôtes qui y mènent
+  const roots = [];
+  const hostOf = (host, root) => {
+    const attr = testAttrOf(host);
+    let css = host.tagName.toLowerCase();
+    if (attr) css = `[${attr}="${q(host.getAttribute(attr))}"]`;
+    else if (stableId(host.id)) css = `#${host.id}`;
+    const all = Array.from(root.querySelectorAll(css));
+    return {css, nth: all.length > 1 ? all.indexOf(host) : null};
+  };
+  const walk = (root, hosts) => {
+    roots.push({root, hosts});
+    root.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot, hosts.concat([hostOf(el, root)])); });
+  };
+  walk(document, []);
+  roots.forEach(({root}) => root.querySelectorAll('[' + refAttr + ']').forEach((e) => e.removeAttribute(refAttr)));
+
+  // Chemin CSS depuis la racine d'un composant : querySelector ne connaît pas :has-text
+  const pathIn = (el, root) => {
+    const parts = [];
+    for (let node = el; node && node !== root && node.nodeType === 1; node = node.parentNode) {
+      const tag = node.tagName.toLowerCase();
+      const same = Array.from(node.parentNode.children).filter((c) => c.tagName === node.tagName);
+      parts.unshift(same.length > 1 ? `${tag}:nth-of-type(${same.indexOf(node) + 1})` : tag);
+    }
+    return parts.join(' > ');
+  };
 
   const elements = [];
-  for (const el of candidates) {
-    if (elements.length >= max) break;
-    if (!visible(el)) continue;
-
+  const add = (el, root, hosts) => {
+    if (elements.length >= max || el.hasAttribute(refAttr) || !visible(el)) return;
+    const docRoot = root === document;
     const tag = el.tagName.toLowerCase();
     const type = el.getAttribute('type');
+    const kind = (type || '').toLowerCase();
+    const role = el.getAttribute('role');
+    const editable = el.isContentEditable && el.matches('[contenteditable=""], [contenteditable=true]');
+    // Champ à remplir ou à choisir : saisie, liste native ou « maison » (une div focalisable), zone de texte riche
+    const field = (tag === 'input' && !['submit', 'button', 'reset', 'image'].includes(kind)) || tag === 'select'
+      || tag === 'textarea' || editable || FIELD_ROLES.includes(role)
+      || (GENERIC.includes(tag) && !role && el.hasAttribute('tabindex') && el.getAttribute('tabindex') !== '-1');
+    const labelText = labelOf(el, field);
     let text = clean(el.innerText);
-    if (!text && tag === 'input' && ['submit', 'button', 'reset'].includes(type)) text = clean(el.value);
+    if (!text && tag === 'input' && ['submit', 'button', 'reset'].includes(kind)) text = clean(el.value);
+    // Contenu actuel d'un champ, montré au modèle (jamais celui d'un mot de passe)
+    let filled = '';
+    if (tag === 'textarea') filled = el.value;
+    else if (tag === 'select') filled = el.selectedIndex >= 0 ? el.options[el.selectedIndex].text : '';
+    else if (tag === 'input' && !['password', 'checkbox', 'radio', 'file', 'submit', 'button', 'reset', 'image', 'hidden',
+                                  'range', 'color'].includes(kind)) filled = el.value;
 
-    const testAttr = ['data-test', 'data-testid', 'data-test-id'].find((a) => el.hasAttribute(a)) || null;
+    const testAttr = testAttrOf(el);
     const attrs = {
       test_attr: testAttr,
       test_id: testAttr ? el.getAttribute(testAttr) : null,
@@ -90,60 +180,172 @@ _OBSERVE_JS = r"""
       name: el.getAttribute('name'),
       placeholder: el.getAttribute('placeholder'),
       aria: el.getAttribute('aria-label'),
-      label: labelOf(el),
+      label: labelText,
+      title: el.getAttribute('title'),
+      role,
+      value: clean(filled).slice(0, 80) || null,
+      editable: editable || null,
+      field: field || null,
     };
 
     // Sélecteur lisible, du plus robuste au moins robuste
     let css = null;
     if (attrs.test_id) css = `[${testAttr}="${q(attrs.test_id)}"]`;
-    else if (attrs.id && /^[A-Za-z][\w-]*$/.test(attrs.id)) css = `#${attrs.id}`;
+    else if (stableId(attrs.id)) css = `#${attrs.id}`;
     else if (attrs.name) css = `${tag}[name="${q(attrs.name)}"]`;
     else if (attrs.aria) css = `${tag}[aria-label="${q(attrs.aria)}"]`;
     else if (attrs.placeholder) css = `${tag}[placeholder="${q(attrs.placeholder)}"]`;
     else if (tag === 'input' && el.value) css = `input[value="${q(el.value)}"]`;
+    // Élément générique sans attribut : sa classe, si elle est la seule de ce nom (div.liste-choix)
+    const cls = GENERIC.includes(tag) ? classOf(el) : null;
+    const clsXpath = cls ? `//${tag}[contains(concat(" ", normalize-space(@class), " "), " ${cls} ")]` : null;
+    const byClass = !css && !!cls && root.querySelectorAll(`${tag}.${cls}`).length === 1;
+    if (byClass) css = `${tag}.${cls}`;
+
+    // Champ sans attribut utile, ou liste « maison » parmi d'autres : le libellé posé juste avant le désigne,
+    // en XPath (//label[normalize-space(.)="User Role"]/following::div[@tabindex][1]), que Playwright comprend aussi.
+    let byLabel = null;
+    if (!css && docRoot && field && labelText) {
+      const target = tag + (GENERIC.includes(tag) ? '[@tabindex]' : role ? `[@role=${xlit(role)}]` : '');
+      const label = xlit(labelText);
+      byLabel = xpathFor(el, `//label[normalize-space(.)=${label}]/following::${target}[1]`)
+        || xpathFor(el, `//label[starts-with(normalize-space(.), ${label})]/following::${target}[1]`)
+        || xpathFor(el, `//label[starts-with(normalize-space(.), ${label})]//${target}`);
+    }
 
     let selector;
     let nth = null;
+    let lastClass;  // undefined tant que le dernier recours n'a pas servi
     if (css) {
-      const matches = Array.from(document.querySelectorAll(css));
+      const matches = Array.from(root.querySelectorAll(css));
       if (matches.length > 1) nth = matches.indexOf(el);
       selector = css;
-    } else if (text) {
-      // Extension Playwright :has-text() : contient le texte, sans tenir compte de la casse
+    } else if (byLabel) {
+      selector = `xpath=${byLabel}`;
+    } else if (docRoot && text) {
+      // Extension Playwright :has-text() : contient le texte, sans tenir compte de la casse.
+      // Le rôle ARIA ou la classe, s'il y en a, rendent le sélecteur plus précis : div[role="option"]:has-text("ESS").
       const needle = text.slice(0, 60);
-      selector = `${tag}:has-text("${q(needle)}")`;
-      const same = Array.from(document.querySelectorAll(tag))
+      const base = attrs.role ? `${tag}[role="${q(attrs.role)}"]` : cls ? `${tag}.${cls}` : tag;
+      selector = `${base}:has-text("${q(needle)}")`;
+      const same = Array.from(root.querySelectorAll(base))
         .filter((e) => clean(e.innerText).toLowerCase().includes(needle.toLowerCase()));
       if (same.length > 1) nth = same.indexOf(el);
+    } else if (!docRoot) {
+      selector = pathIn(el, root);
+      const matches = Array.from(root.querySelectorAll(selector));
+      if (matches.length > 1) nth = matches.indexOf(el);
     } else {
-      continue;  // élément impossible à désigner de façon fiable
+      // Un bouton ou une icône sans texte ni attribut ne dirait rien au modèle : on l'ignore. Un champ, lui,
+      // reste utilisable en dernier recours, désigné par sa classe ou sa balise et son rang (fragile pour les tests rejoués).
+      if (!field) return;
+      lastClass = cls || classOf(el);
+      selector = lastClass ? `${tag}.${lastClass}` : tag;
+      const matches = Array.from(root.querySelectorAll(selector));
+      if (matches.length > 1) nth = matches.indexOf(el);
     }
 
     // Équivalent XPath, pour le test Robot Framework / Selenium généré à la fin
-    // (Selenium ne connaît pas :has-text ni .nth de Playwright).
+    // (Selenium ne connaît pas :has-text ni .nth de Playwright). XPath n'entre pas dans un Shadow DOM.
     let xpath = null;
-    if (attrs.test_id) xpath = xpathFor(el, `//*[@${testAttr}=${xlit(attrs.test_id)}]`);
-    else if (attrs.id && /^[A-Za-z][\w-]*$/.test(attrs.id)) xpath = xpathFor(el, `//*[@id=${xlit(attrs.id)}]`);
+    if (!docRoot) xpath = null;
+    else if (byLabel) xpath = byLabel;
+    else if (attrs.test_id) xpath = xpathFor(el, `//*[@${testAttr}=${xlit(attrs.test_id)}]`);
+    else if (stableId(attrs.id)) xpath = xpathFor(el, `//*[@id=${xlit(attrs.id)}]`);
     else if (attrs.name) xpath = xpathFor(el, `//${tag}[@name=${xlit(attrs.name)}]`);
     else if (attrs.aria) xpath = xpathFor(el, `//${tag}[@aria-label=${xlit(attrs.aria)}]`);
     else if (attrs.placeholder) xpath = xpathFor(el, `//${tag}[@placeholder=${xlit(attrs.placeholder)}]`);
     else if (tag === 'input' && el.value) xpath = xpathFor(el, `//input[@value=${xlit(el.value)}]`);
+    else if (byClass) xpath = xpathFor(el, clsXpath);
     else if (text) {
       const needle = text.slice(0, 60);
-      xpath = xpathFor(el, `//${tag}[contains(normalize-space(.), ${xlit(needle)})]`)
-        || xpathFor(el, `//${tag}[contains(translate(normalize-space(.), "${UPPER}", "${LOWER}"), ${xlit(needle.toLowerCase())})]`);
+      const base = attrs.role ? `//${tag}[@role=${xlit(attrs.role)}]` : clsXpath || `//${tag}`;
+      xpath = xpathFor(el, `${base}[contains(normalize-space(.), ${xlit(needle)})]`)
+        || xpathFor(el, `${base}[contains(translate(normalize-space(.), "${UPPER}", "${LOWER}"), ${xlit(needle.toLowerCase())})]`);
+    } else if (lastClass !== undefined) {
+      xpath = xpathFor(el, lastClass ? `//${tag}[contains(concat(" ", normalize-space(@class), " "), " ${lastClass} ")]` : `//${tag}`);
     }
 
-    const ref = elements.length + 1;
+    const ref = start + elements.length + 1;
     el.setAttribute(refAttr, String(ref));
-    elements.push({ref, tag, type, text: text.slice(0, 80), attrs, selector, nth, xpath});
+    elements.push({ref, tag, type, text: text.slice(0, 80), attrs, selector, nth, xpath, shadow: hosts.length ? hosts : null});
+  };
+
+  const CANDIDATES = 'a[href], button, input:not([type=hidden]), select, textarea, ' +
+    '[role=button], [role=link], [role=checkbox], [role=radio], [role=switch], [role=tab], [role=option], ' +
+    '[role=menuitem], [role=combobox], [aria-haspopup]:not([aria-haspopup=false]), [onclick], ' +
+    '[contenteditable=""], [contenteditable=true], [tabindex]:not([tabindex="-1"])';
+  for (const {root, hosts} of roots) root.querySelectorAll(CANDIDATES).forEach((el) => add(el, root, hosts));
+
+  // Éléments cliquables sans rôle ni attribut (options d'une liste « maison ») : le site leur donne
+  // le curseur en forme de main. On garde le plus extérieur, et rien de ce qui est déjà dans la liste.
+  let scanned = 0;
+  for (const {root, hosts} of roots) {
+    for (const el of root.querySelectorAll('div, span, li, td, p, img, svg')) {
+      if (elements.length >= max || ++scanned > 4000) break;
+      if (el.closest('[' + refAttr + ']') || el.querySelector('[' + refAttr + ']')) continue;
+      if (getComputedStyle(el).cursor !== 'pointer') continue;
+      const parent = el.parentElement;
+      if (parent && getComputedStyle(parent).cursor === 'pointer') continue;
+      if (!clean(el.innerText) && !el.getAttribute('aria-label') && !el.getAttribute('title')) continue;
+      add(el, root, hosts);
+    }
   }
-  return {elements, text: clean(document.body ? document.body.innerText : '')};
+
+  const shadowTexts = roots.slice(1).map(({root}) => shownText(root)).filter(Boolean);
+  return {elements, text: clean(document.body ? document.body.innerText : ''), shadow_text: shadowTexts.join(' ')};
+}
+"""
+
+# Texte visible d'un document : celui de la page (innerText) et celui de ses Shadow DOM, à part.
+_TEXT_JS = r"""
+() => {
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  const shadow = [];
+  const walk = (root) => root.querySelectorAll('*').forEach((el) => {
+    if (!el.shadowRoot) return;
+    shadow.push(clean(Array.from(el.shadowRoot.children)
+      .filter((c) => !['STYLE', 'SCRIPT', 'TEMPLATE', 'LINK'].includes(c.tagName) && getComputedStyle(c).display !== 'none')
+      .map((c) => c.innerText || '').join(' ')));
+    walk(el.shadowRoot);
+  });
+  walk(document);
+  return {light: clean(document.body ? document.body.innerText : ''), shadow: shadow.filter(Boolean).join(' ')};
+}
+"""
+
+# Comment désigner un cadre (iframe) dans le document qui le contient, et s'il est visible.
+_FRAME_JS = r"""
+(el) => {
+  const q = (v) => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const stableId = (id) => !!id && /^[A-Za-z][\w-]*$/.test(id) && !/\d{4,}/.test(id) && !/[0-9a-f]{8,}/i.test(id);
+  const tag = el.tagName.toLowerCase();
+  let css = tag;
+  if (stableId(el.id)) css = `#${el.id}`;
+  else if (el.getAttribute('name')) css = `${tag}[name="${q(el.getAttribute('name'))}"]`;
+  else if (el.getAttribute('title')) css = `${tag}[title="${q(el.getAttribute('title'))}"]`;
+  else if (el.getAttribute('src')) css = `${tag}[src="${q(el.getAttribute('src'))}"]`;
+  const all = Array.from(el.getRootNode().querySelectorAll(css));
+  const r = el.getBoundingClientRect();
+  const s = getComputedStyle(el);
+  return {
+    css, nth: all.length > 1 ? all.indexOf(el) : null,
+    label: el.getAttribute('title') || el.getAttribute('name') || el.id || css,
+    visible: r.width >= 40 && r.height >= 20 && s.visibility !== 'hidden' && s.display !== 'none',
+  };
 }
 """
 
 _ATTR_LABELS = (("test_id", "data-test"), ("id", "id"), ("name", "name"), ("placeholder", "placeholder"), ("aria", "aria-label"),
-                ("label", "label"))
+                ("label", "label"), ("title", "title"))
+
+# Balises sans rôle propre : une div cliquable n'est ni un bouton ni un lien, c'est « l'élément »
+_GENERIC_TAGS = ("div", "span", "li", "td", "p", "img", "svg", "i", "label", "ul", "tr", "section", "article")
+
+# Rôle ARIA -> façon de nommer l'élément dans une phrase (et s'il est féminin)
+_ROLE_NOUNS = {"option": ("l'option", True), "radio": ("l'option", True), "checkbox": ("la case", True),
+               "combobox": ("la liste", True), "listbox": ("la liste", True), "tab": ("l'onglet", False),
+               "switch": ("l'interrupteur", False), "link": ("le lien", False)}
 
 
 @dataclass
@@ -158,20 +360,40 @@ class Element:
     selector: str
     nth: int | None = None
     xpath: str | None = None  # même élément en XPath, pour Selenium et Robot Framework
+    shadow: list | None = None  # hôtes des Shadow DOM qui le contiennent : [{"css", "nth"}], du document vers l'élément
+    frame: list | None = None  # cadres (iframes) qui le contiennent : [{"css", "nth", "label"}], de la page vers l'élément
+
+    def editable(self) -> bool:
+        """Zone de texte riche (contenteditable), comme le corps d'un éditeur TinyMCE."""
+        return bool((self.attrs or {}).get("editable"))
+
+    def is_field(self) -> bool:
+        """Champ à remplir ou à choisir : saisie, liste (native ou « maison »), zone de texte riche."""
+        if self.tag in ("input", "textarea", "select"):
+            return (self.type or "").lower() not in ("submit", "button", "reset", "image")
+        return self.editable() or bool((self.attrs or {}).get("field"))
+
+    def reads_text(self) -> bool:
+        """Son contenu se lit dans son texte affiché, pas dans une valeur : zone de texte riche, liste « maison »."""
+        return self.editable() or self.tag not in ("input", "textarea", "select")
 
     def label(self) -> str:
         """Nom court de l'élément, tel qu'un testeur le désignerait : « Username », « Login »."""
         attrs = self.attrs or {}
-        if self.tag in ("input", "textarea", "select") and (self.type or "") not in ("submit", "button", "reset"):
-            name = (attrs.get("label") or attrs.get("aria") or attrs.get("placeholder") or attrs.get("name")
-                    or attrs.get("id") or attrs.get("test_id"))
-        else:
-            name = self.text or attrs.get("aria") or attrs.get("test_id") or attrs.get("id")
+        if self.is_field():
+            name = (attrs.get("label") or attrs.get("aria") or attrs.get("placeholder") or attrs.get("title")
+                    or attrs.get("name") or attrs.get("id") or attrs.get("test_id")
+                    or (self.text if self.tag not in ("select", "textarea") else None))
+        else:  # un bouton dont le texte n'est qu'une icône (⚙, ×) se nomme par son aria-label
+            text = self.text if any(ch.isalnum() for ch in self.text) else ""
+            name = text or attrs.get("aria") or attrs.get("title") or self.text or attrs.get("test_id") or attrs.get("id")
         return name or self.tag
 
     def noun(self) -> tuple[str, bool]:
         """« le champ », « la liste »..., et si le nom est féminin (« la case est cochée »)."""
         kind = (self.type or "").lower()
+        if self.editable():
+            return "la zone de texte", True
         if self.tag == "input" and kind == "checkbox":
             return "la case", True
         if self.tag == "input" and kind == "radio":
@@ -180,18 +402,36 @@ class Element:
             return "la liste", True
         if self.tag in ("input", "textarea") and kind not in ("submit", "button", "reset"):
             return "le champ", False
+        if (self.attrs or {}).get("role") in _ROLE_NOUNS:
+            return _ROLE_NOUNS[self.attrs["role"]]
+        if self.tag in _GENERIC_TAGS and not (self.attrs or {}).get("role"):  # une div focalisable, ou cliquable, sans rôle
+            return ("le champ", False) if self.is_field() else ("l'élément", False)
         return ("le lien", False) if self.tag == "a" else ("le bouton", False)
+
+    def frame_label(self) -> str | None:
+        return self.frame[-1].get("label") or self.frame[-1]["css"] if self.frame else None
 
     def describe(self) -> str:
         """Description d'une ligne, envoyée au modèle."""
         parts = [f"[{self.ref}]", self.tag]
         if self.tag == "input" and self.type:
             parts.append(f"type={self.type}")
+        attrs = self.attrs or {}
+        if attrs.get("editable"):
+            parts.append("éditable")
+        if attrs.get("role"):
+            parts.append(f'role="{attrs["role"]}"')
         for key, label in _ATTR_LABELS:
-            if self.attrs.get(key):
-                parts.append(f'{label}="{self.attrs[key]}"')
+            if attrs.get(key):
+                parts.append(f'{label}="{attrs[key]}"')
+        if attrs.get("value") is not None:
+            parts.append(f'valeur="{attrs["value"]}"')
         if self.text:
             parts.append(f'texte="{self.text}"')
+        if self.frame:
+            parts.append(f"(dans le cadre « {self.frame_label()} »)")
+        if self.shadow:
+            parts.append(f"(dans le composant {self.shadow[-1]['css']})")
         return " ".join(parts)
 
 
@@ -204,6 +444,8 @@ class Observation:
     text: str
     elements: list[Element] = field(default_factory=list)
     screenshot: bytes | None = None  # capture JPEG envoyée au modèle quand la vision est activée
+    frame_texts: list = field(default_factory=list)  # (nom du cadre, texte visible) de chaque cadre observé
+    frames: dict = field(default_factory=dict, repr=False, compare=False)  # ref -> cadre Playwright qui le contient
 
     def find(self, ref: int) -> Element | None:
         return next((e for e in self.elements if e.ref == ref), None)
@@ -211,6 +453,9 @@ class Observation:
     def to_prompt(self, max_text: int = 1500) -> str:
         text = self.text if len(self.text) <= max_text else self.text[:max_text] + " [...]"
         lines = [f"URL : {self.url}", f"Titre : {self.title}", "Texte visible (extrait) :", text or "(vide)", ""]
+        for label, frame_text in self.frame_texts:
+            short = frame_text if len(frame_text) <= 600 else frame_text[:600] + " [...]"
+            lines += [f"Texte du cadre « {label} » :", short, ""]
         lines.append("Éléments interactifs :")
         lines.extend(e.describe() for e in self.elements)
         if not self.elements:
@@ -228,13 +473,103 @@ class ActionResult:
     check: bool | None = None  # résultat d'une vérification, None si ce n'en est pas une
     value: str | None = None  # valeur réelle constatée : option choisie, texte avec sa casse exacte
     by_ai: bool = False  # vérification visuelle : c'est l'avis du modèle sur la capture, pas une mesure
+    frame: list | None = None  # cadre où le texte attendu a été trouvé (vérification ou attente)
+    in_shadow: bool = False  # texte trouvé dans un Shadow DOM, que document.body.innerText ne contient pas
+    dialog: dict | None = None  # fenêtre JavaScript ouverte par l'action : type, message, réponse donnée
+
+
+class DialogWatcher:
+    """Fenêtres JavaScript (alerte, confirmation, saisie) : la réponse choisie par l'agent, OK par défaut.
+
+    Sans gestionnaire, Playwright fermerait chaque fenêtre en choisissant Annuler, sans que
+    l'agent la voie : un formulaire confirmé par une fenêtre ne serait jamais envoyé.
+    """
+
+    def __init__(self) -> None:
+        self.accept, self.text, self.seen = True, None, []
+
+    def handle(self, dialog) -> None:
+        accepted, text = self.accept, self.text if dialog.type == "prompt" else None
+        try:
+            if not accepted:
+                dialog.dismiss()
+            elif text is not None:
+                dialog.accept(text)
+            else:
+                dialog.accept()
+        except PlaywrightError:
+            pass  # page fermée entre-temps
+        self.seen.append({"type": dialog.type, "message": dialog.message, "accepted": accepted, "text": text})
+        self.accept, self.text = True, None  # la consigne ne vaut que pour une fenêtre
+
+
+def dialogs(page: Page) -> DialogWatcher:
+    """Le gestionnaire de fenêtres JavaScript de la page, branché à la première demande."""
+    watcher = getattr(page, "_agent_dialogs", None)
+    if watcher is None:
+        watcher = DialogWatcher()
+        page.on("dialog", watcher.handle)
+        page._agent_dialogs = watcher
+    return watcher
+
+
+def _frame_path(frame) -> list[dict] | None:
+    """Chemin d'un cadre depuis la page : comment désigner chaque iframe traversée. None si un cadre est caché."""
+    hops, current = [], frame
+    try:
+        while current.parent_frame is not None:
+            handle = current.frame_element()
+            try:
+                hop = handle.evaluate(_FRAME_JS)
+            finally:
+                handle.dispose()
+            if not hop["visible"]:
+                return None
+            hops.append({"css": hop["css"], "nth": hop["nth"], "label": hop["label"]})
+            current = current.parent_frame
+    except PlaywrightError:
+        return None  # cadre en cours de chargement ou fermé entre-temps
+    return list(reversed(hops)) if len(hops) <= MAX_FRAME_DEPTH else None
+
+
+def _frames(page: Page) -> list[tuple]:
+    """Les cadres visibles de la page, sans les publicités : (cadre Playwright, chemin)."""
+    found = []
+    for frame in page.frames:
+        if frame.parent_frame is None or frame.is_detached() or _AD_FRAMES.search(frame.url or "") \
+                or _AD_FRAME_NAMES.search(frame.name or ""):
+            continue
+        path = _frame_path(frame)
+        if path is not None:
+            found.append((frame, path))
+        if len(found) >= MAX_FRAMES:
+            break
+    return found
+
+
+def _joined(data: dict) -> str:
+    return " ".join(part for part in (data.get("text"), data.get("shadow_text")) if part)
 
 
 def observe(page: Page, max_elements: int = 80) -> Observation:
-    """Photographie l'état de la page : URL, titre, texte et éléments numérotés."""
-    data = page.evaluate(_OBSERVE_JS, {"refAttr": REF_ATTR, "max": max_elements})
+    """Photographie l'état de la page : URL, titre, texte et éléments numérotés, cadres compris."""
+    data = page.evaluate(_OBSERVE_JS, {"refAttr": REF_ATTR, "max": max_elements, "start": 0})
     elements = [Element(**item) for item in data["elements"]]
-    return Observation(url=page.url, title=page.title(), text=data["text"], elements=elements)
+    frames, frame_texts = {}, []
+    for frame, path in _frames(page):
+        try:
+            found = frame.evaluate(_OBSERVE_JS, {"refAttr": REF_ATTR, "max": max(max_elements - len(elements), 0),
+                                                 "start": len(elements)})
+        except PlaywrightError:
+            continue  # cadre en cours de chargement ou fermé entre-temps
+        for item in found["elements"]:
+            element = Element(**item, frame=path)
+            elements.append(element)
+            frames[element.ref] = frame
+        if _joined(found):
+            frame_texts.append((path[-1]["label"], _joined(found)))
+    return Observation(url=page.url, title=page.title(), text=_joined(data), elements=elements,
+                       frame_texts=frame_texts, frames=frames)
 
 
 def _short_error(exc: Exception) -> str:
@@ -243,8 +578,46 @@ def _short_error(exc: Exception) -> str:
 
 
 def visible_text(page: Page) -> str:
-    """Texte visible de la page, espaces regroupés, comme le lit un utilisateur."""
-    return " ".join(page.locator("body").inner_text().split())
+    """Texte visible de la page, Shadow DOM compris, espaces regroupés, comme le lit un utilisateur."""
+    data = page.main_frame.evaluate(_TEXT_JS)
+    return " ".join(part for part in (data["light"], data["shadow"]) if part)
+
+
+def _texts(page: Page) -> list[tuple]:
+    """Textes visibles de la page puis de chaque cadre : (chemin du cadre, texte, texte des Shadow DOM)."""
+    found = []
+    for path, frame in [(None, page.main_frame)] + [(path, frame) for frame, path in _frames(page)]:
+        try:
+            data = frame.evaluate(_TEXT_JS)
+        except PlaywrightError:
+            continue
+        found.append((path, data["light"], data["shadow"]))
+    return found
+
+
+def _locate_text(page: Page, text: str) -> tuple | None:
+    """Où le texte est-il affiché ? (chemin du cadre, dans un Shadow DOM, casse exacte), ou None."""
+    needle = " ".join(text.split()).lower()
+    for path, light, shadow in _texts(page):
+        for part, in_shadow in ((light, False), (shadow, True)):
+            position = part.lower().find(needle)
+            if position >= 0:
+                exact = part[position:position + len(needle)]
+                return path, in_shadow, exact if exact.lower() == needle else text
+    return None
+
+
+def _wait_text(page: Page, text: str, timeout_s: float, present: bool = True) -> tuple[bool, tuple | None, float]:
+    """Attend que le texte soit affiché (ou ait disparu) : (réussi, où il est, secondes écoulées)."""
+    start = time.monotonic()
+    while True:
+        where = _locate_text(page, text)
+        elapsed = time.monotonic() - start
+        if (where is not None) == present:
+            return True, where, elapsed
+        if elapsed > timeout_s:
+            return False, where, elapsed
+        page.wait_for_timeout(100)
 
 
 def _poll(page: Page, condition):
@@ -269,8 +642,35 @@ def _settle(page: Page) -> None:
         pass
 
 
+def _dialog_detail(dialog: dict) -> str:
+    kind = {"alert": "Alerte", "confirm": "Fenêtre de confirmation", "prompt": "Fenêtre de saisie",
+            "beforeunload": "Fenêtre de départ"}.get(dialog["type"], "Fenêtre")
+    if not dialog["accepted"]:
+        answer = "refusée (Annuler)"
+    elif dialog.get("text") is not None:
+        answer = f"acceptée avec la saisie « {dialog['text']} »"
+    else:
+        answer = "acceptée (OK)"
+    return f"{kind} « {dialog['message']} » {answer}."
+
+
 def execute(page: Page, action: Action, observation: Observation | None, timeout_ms: int = 5000) -> ActionResult:
-    """Exécute une action sur la page et renvoie son résultat, sans jamais lever d'exception."""
+    """Exécute une action sur la page et renvoie son résultat, sans jamais lever d'exception.
+
+    Une fenêtre JavaScript ouverte par l'action est notée dans le résultat : le modèle lit son
+    message dans l'historique, et les tests générés savent y répondre de la même façon.
+    """
+    watcher = dialogs(page)
+    before = len(watcher.seen)
+    result = _run(page, action, observation, timeout_ms, watcher)
+    opened = watcher.seen[before:]
+    if opened:
+        result.dialog = opened[-1]
+        result.detail = f"{result.detail} {_dialog_detail(opened[-1])}"
+    return result
+
+
+def _run(page: Page, action: Action, observation: Observation | None, timeout_ms: int, watcher: DialogWatcher) -> ActionResult:
     args = action.args
     try:
         if action.name == "goto":
@@ -281,9 +681,11 @@ def execute(page: Page, action: Action, observation: Observation | None, timeout
             element = observation.find(args["ref"]) if observation else None
             if element is None:
                 return ActionResult(False, f"Aucun élément [{args['ref']}] sur la page actuelle")
-            locator = page.locator(f'[{REF_ATTR}="{element.ref}"]')
+            # Un élément d'un cadre se cherche dans ce cadre ; Playwright entre seul dans les Shadow DOM
+            scope = observation.frames.get(element.ref) or page
+            locator = scope.locator(f'[{REF_ATTR}="{element.ref}"]')
             if action.name == "check_value":
-                return _check_value(page, locator, element, args["value"], timeout_ms)
+                return _check_value(page, locator, element, args["value"], timeout_ms, args.get("regex", False))
             if action.name == "check_state":
                 return _check_state(page, locator, element, args["state"], timeout_ms)
             if action.name == "click":
@@ -298,25 +700,39 @@ def execute(page: Page, action: Action, observation: Observation | None, timeout
             # Playwright accepte le libellé ou la valeur : on garde la valeur réelle de l'option
             return ActionResult(True, f"Option « {args['value']} » choisie", element, value=selected[0] if selected else None)
 
+        if action.name == "dialog":  # consigne pour la prochaine fenêtre JavaScript
+            watcher.accept, watcher.text = args["accept"], args.get("text") if args["accept"] else None
+            answer = "OK" if args["accept"] else "Annuler"
+            typed = f", avec la saisie « {watcher.text} »" if watcher.text is not None else ""
+            return ActionResult(True, f"Prochaine fenêtre JavaScript : réponse {answer}{typed}")
+
+        if action.name == "wait":
+            seconds = args["seconds"]
+            if "text" not in args:
+                page.wait_for_timeout(seconds * 1000)
+                return ActionResult(True, f"Attente de {seconds} s")
+            found, where, elapsed = _wait_text(page, args["text"], seconds)
+            if not found:
+                return ActionResult(False, f"« {args['text']} » ne s'est pas affiché en {seconds} s")
+            path, in_shadow, exact = where
+            return ActionResult(True, f"« {args['text']} » affiché après {elapsed:.0f} s", value=exact, frame=path,
+                                in_shadow=in_shadow)
+
         if action.name == "check_text":
             text, absent = args["text"], args.get("absent", False)
-            body = expect(page.locator("body"))
-            try:
-                if absent:  # vérification négative : le texte ne doit pas apparaître
-                    body.not_to_contain_text(text, ignore_case=True, use_inner_text=True, timeout=CHECK_TIMEOUT_MS)
+            if absent:  # vérification négative : le texte ne doit apparaître ni dans la page, ni dans ses cadres
+                gone, _, _ = _wait_text(page, text, CHECK_TIMEOUT_MS / 1000, present=False)
+                if gone:
                     return ActionResult(True, f"Texte « {text} » absent, comme attendu", check=True)
-                body.to_contain_text(text, ignore_case=True, use_inner_text=True, timeout=CHECK_TIMEOUT_MS)
-                # La vérification ignore la casse ; Selenium non. On note la casse exacte de la page.
-                page_text = page.locator("body").inner_text()
-                start = page_text.lower().find(text.lower())
-                exact = page_text[start : start + len(text)] if start >= 0 else text
-                if exact.lower() != text.lower():  # cas rare : la mise en minuscules change la longueur
-                    exact = text
-                return ActionResult(True, f"Texte « {text} » présent", check=True, value=exact)
-            except AssertionError:
-                if absent:
-                    return ActionResult(True, f"Texte « {text} » présent alors qu'il devrait être absent", check=False)
+                return ActionResult(True, f"Texte « {text} » présent alors qu'il devrait être absent", check=False)
+            found, where, _ = _wait_text(page, text, CHECK_TIMEOUT_MS / 1000)
+            if not found:
                 return ActionResult(True, f"Texte « {text} » absent de la page", check=False)
+            # La vérification ignore la casse ; Selenium non. On note la casse exacte de la page.
+            path, in_shadow, exact = where
+            place = f" dans le cadre « {path[-1]['label']} »" if path else ""
+            return ActionResult(True, f"Texte « {text} » présent{place}", check=True, value=exact, frame=path,
+                                in_shadow=in_shadow)
 
         if action.name == "check_visual":  # avis du modèle sur la capture d'écran qu'il a reçue
             if observation is None or observation.screenshot is None:
@@ -377,24 +793,35 @@ def _order(page_text: str, texts: list[str]) -> tuple[bool, str, None]:
     return True, "Ordre respecté : " + ", puis ".join(f"« {t} »" for t in texts), None
 
 
-def _check_value(page: Page, locator, element: Element, expected: str, timeout_ms: int) -> ActionResult:
-    """Contenu d'un champ, ou option choisie dans une liste (son libellé ou sa valeur)."""
+def _check_value(page: Page, locator, element: Element, expected: str, timeout_ms: int, regex: bool = False) -> ActionResult:
+    """Contenu d'un champ ou d'une zone de texte, ou option choisie dans une liste (son libellé ou sa valeur).
+
+    Avec regex, la valeur attendue est une expression régulière : un format (date, code, identifiant).
+    Pour une liste, le motif s'applique au libellé affiché.
+    """
     secret = element.tag == "input" and (element.type or "").lower() == "password"
     name = element.label()
+    matches = (lambda value: re.search(expected, value) is not None) if regex else (lambda value: value == expected)
 
     def read():
-        value = locator.input_value(timeout=timeout_ms)
+        if element.reads_text():  # zone de texte riche, liste « maison » : son texte affiché
+            value = " ".join(locator.inner_text(timeout=timeout_ms).split())
+        else:
+            value = locator.input_value(timeout=timeout_ms)
         if element.tag == "select":
             label = locator.evaluate("e => e.selectedIndex >= 0 ? e.options[e.selectedIndex].text.trim() : ''")
-            ok, shown = expected in (value, label), label or value
+            ok = matches(label) if regex else matches(value) or matches(label)
+            shown = label or value
         else:
-            ok, shown = value == expected, value
+            ok, shown = matches(value), value
         if secret:  # un mot de passe n'apparaît jamais dans le rapport
             return ok, f"« {name} » : mot de passe " + ("conforme" if ok else "différent de celui attendu"), value
         verb = "indique" if element.tag == "select" else "contient"
+        found = "est vide" if shown == "" else f"{verb} « {shown} »"
+        if regex:
+            return ok, f"« {name} » {found}" + (", conforme au motif" if ok else f", qui ne correspond pas au motif « {expected} »"), value
         if ok:
             return ok, f"« {name} » est vide" if shown == "" else f"« {name} » {verb} « {shown} »", value
-        found = "est vide" if shown == "" else f"{verb} « {shown} »"
         wanted = "vide" if expected == "" else f"« {expected} »"
         return ok, f"« {name} » {found} au lieu de {wanted}", value
 

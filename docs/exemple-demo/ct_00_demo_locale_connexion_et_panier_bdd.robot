@@ -69,8 +69,19 @@ La page affiche
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Le texte visible contient    ${texte}
 
 Le texte visible contient
-    [Documentation]    innerText ne renvoie que le texte affiché à l'écran : un message caché ne compte pas.
     [Arguments]    ${texte}
-    ${visible}=    Execute Javascript    return document.body.innerText
+    ${visible}=    Texte visible de la page
     Should Contain    ${visible}    ${texte}    msg=Le texte « ${texte} » n'est pas affiché.    values=False
     ...    ignore_case=True    strip_spaces=True    collapse_spaces=True
+
+Texte visible de la page
+    [Documentation]    Texte affiché à l'écran, comme le lit l'agent : innerText ne renvoie pas un message caché.
+    ...    Le texte des composants web (Shadow DOM), que innerText ne contient pas, est ajouté à la fin.
+    ${texte}=    Execute Javascript
+    ...    const parts = [document.body.innerText];
+    ...    const visiter = (racine) => racine.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) {
+    ...    parts.push(Array.from(el.shadowRoot.children).filter((c) => !['STYLE', 'SCRIPT', 'TEMPLATE', 'LINK']
+    ...    .includes(c.tagName) && getComputedStyle(c).display !== 'none').map((c) => c.innerText || '').join(' '));
+    ...    visiter(el.shadowRoot); } });
+    ...    visiter(document); return parts.join(' ');
+    RETURN    ${texte}

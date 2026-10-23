@@ -19,6 +19,9 @@ Robot Framework comprend ces mots-clés en français (ligne « language: fr ») 
 le même scénario est écrit dans un fichier .robot, avec un mot-clé pour chaque
 phrase. Les valeurs entre guillemets sont des arguments du mot-clé, qui rejoue
 l'étape avec SeleniumLibrary. Le scénario Gherkin devient exécutable, sans IA.
+
+Un mot-clé qui agit dans un cadre (iframe) le sélectionne, puis revient à la
+page : chaque phrase se suffit à elle-même.
 """
 
 from __future__ import annotations
@@ -27,7 +30,8 @@ import re
 from typing import TYPE_CHECKING
 
 from .actions import STATE_LABELS
-from .codegen_robot import _COUNT, _HIDES, _OPEN, _ORDER, _SHOWS, VARIABLES, _state_keyword, robot_locator
+from .codegen_robot import (_ALERTS, _COUNT, _HIDES, _OPEN, _ORDER, _SHOWS, _VISIBLE, TEXT_BLOCKS, VARIABLES, _state_keyword,
+                            frame_locator, robot_arg, robot_locator, value_keyword)
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -72,6 +76,15 @@ _COMMON = {
     # Vérification visuelle faite par l'IA sur une capture : signalée dans le journal, à automatiser
     "visual": ('l\'écran montre "${constat}"',
                ["Log    Vérification visuelle faite par l'IA, à automatiser : ${constat}    level=WARN"], None),
+    # Chargement lent : on attend le texte jusqu'au délai donné, ou simplement ce délai
+    "wait": ('j\'attends jusqu\'à ${secondes:\\d+} secondes que la page affiche "${texte}"',
+             ["Wait Until Keyword Succeeds    ${secondes}s    500ms    Le texte visible contient    ${texte}"], _SHOWS),
+    "sleep": ("j'attends ${secondes:\\d+} secondes", ["Sleep    ${secondes}s"], None),
+    # Fenêtres JavaScript ouvertes par l'étape précédente : même réponse que l'agent
+    "accept": ('j\'accepte la fenêtre "${message}"', ["Accepter la fenêtre    ${message}"], _ALERTS),
+    "dismiss": ('je refuse la fenêtre "${message}"', ["Refuser la fenêtre    ${message}"], _ALERTS),
+    "prompt": ('je réponds "${texte}" à la fenêtre "${message}"',
+               ["Log    Fenêtre : ${message}", "Input Text Into Alert    ${texte}    action=ACCEPT"], None),
 }
 
 
@@ -117,7 +130,7 @@ class _Names:
         return re.sub(r"[\s_]", "", name.lower())
 
     def get(self, element: Element) -> tuple[str, bool]:
-        key = (element.selector, element.nth)
+        key = (element.selector, element.nth, repr(_place(element.frame)), repr(_place(element.shadow)))
         if key not in self._names:
             noun, feminine = element.noun()
             base = f'{noun} "{_safe(element.label())}"'
@@ -128,6 +141,34 @@ class _Names:
                 name, index = f"{base} ({index})", index + 1
             self._taken.add(self._key(name))
             self._names[key] = (name, feminine)
+        return self._names[key]
+
+
+def _place(hops: list | None) -> tuple:
+    return tuple((hop["css"], hop["nth"]) for hop in hops or [])
+
+
+def _in_frame(frame: list | None, lines: list[str]) -> list[str]:
+    """Lignes d'un mot-clé qui agit dans un cadre : sélection du cadre, puis retour à la page."""
+    if not frame:
+        return lines
+    return [f"Select Frame    {robot_arg(frame_locator(hop))}" for hop in frame] + lines + ["Unselect Frame"]
+
+
+class _Frames:
+    """Un nom unique par cadre, repris dans les phrases : le cadre "Éditeur de note"."""
+
+    def __init__(self) -> None:
+        self._names: dict[tuple, str] = {}
+
+    def get(self, frame: list) -> str:
+        key = _place(frame)
+        if key not in self._names:
+            base = _safe(frame[-1].get("label") or frame[-1]["css"])
+            name, index = base, 2
+            while name in self._names.values():
+                name, index = f"{base} ({index})", index + 1
+            self._names[key] = name
         return self._names[key]
 
 
@@ -150,6 +191,8 @@ class _Scenario:
         self.keywords.setdefault(name, lines)
         if block is not None and block not in self.blocks:
             self.blocks.append(block)
+        if block in TEXT_BLOCKS and _VISIBLE not in self.blocks:
+            self.blocks.append(_VISIBLE)
 
     def common(self, kind: str, part: str, sentence: str) -> None:
         name, lines, block = _COMMON[kind]
@@ -158,7 +201,7 @@ class _Scenario:
 
 
 def _build(run: RunResult) -> _Scenario:
-    scenario, names = _Scenario(), _Names()
+    scenario, names, frames = _Scenario(), _Names(), _Frames()
     opened = False
     for step in run.steps:
         action, result = step.action, step.result
@@ -171,69 +214,114 @@ def _build(run: RunResult) -> _Scenario:
             else:
                 scenario.common("open", "contexte", f"je suis sur la page {_quote(args['url'])}")
                 opened = True
-            continue
-        if not opened:  # le navigateur doit être ouvert avant toute autre étape
-            scenario.common("open", "contexte", f"je suis sur la page {_quote(run.case.url)}")
-            opened = True
-
-        if action.name == "check_text":
-            if args.get("absent"):
-                scenario.common("hides", "résultat", f"la page n'affiche pas {_quote(args['text'])}")
-            else:
-                scenario.common("shows", "résultat", f"la page affiche {_quote(result.value or args['text'])}")
-        elif action.name == "check_url":
-            kind, verb = ("no_url", "ne contient pas") if args.get("absent") else ("url", "contient")
-            scenario.common(kind, "résultat", f"l'URL {verb} {_quote(args['contains'])}")
-        elif action.name == "check_order":
-            texts = [_quote(text) for text in args["texts"]]
-            scenario.common("order", "résultat", f"la page affiche dans cet ordre : {', '.join(texts[:-1])} et {texts[-1]}")
-        elif action.name == "check_count":
-            scenario.common("count", "résultat", f"la page affiche {args['count']} fois {_quote(args['text'])}")
-        elif action.name == "check_visual":
-            scenario.common("visual", "résultat", f"l'écran montre {_quote(args['expected'])}")
         else:
-            _element_step(scenario, names, action, result)
+            if not opened:  # le navigateur doit être ouvert avant toute autre étape
+                scenario.common("open", "contexte", f"je suis sur la page {_quote(run.case.url)}")
+                opened = True
+            _action_step(scenario, names, frames, action, result)
+        if result.dialog is not None:  # fenêtre JavaScript ouverte par l'étape
+            _dialog_step(scenario, result.dialog)
     return scenario
 
 
+def _dialog_step(scenario: _Scenario, dialog: dict) -> None:
+    message = _quote(_clean(dialog["message"]))
+    if dialog["accepted"] and dialog.get("text") is not None:
+        scenario.common("prompt", "action", f"je réponds {_quote(dialog['text'])} à la fenêtre {message}")
+    elif dialog["accepted"]:
+        scenario.common("accept", "action", f"j'accepte la fenêtre {message}")
+    else:
+        scenario.common("dismiss", "action", f"je refuse la fenêtre {message}")
+
+
+def _action_step(scenario: _Scenario, names: _Names, frames: _Frames, action, result) -> None:
+    """Phrase d'une action réussie, autre que l'ouverture d'une page."""
+    args = action.args
+    if action.name == "wait":
+        if "text" not in args:
+            scenario.common("sleep", "action", f"j'attends {args['seconds']} secondes")
+        elif result.frame:  # texte attendu dans un cadre
+            frame = frames.get(result.frame)
+            scenario.define(f'j\'attends jusqu\'à ${{secondes:\\d+}} secondes que le cadre "{frame}" affiche "${{texte}}"',
+                            _in_frame(result.frame, ["Wait Until Keyword Succeeds    ${secondes}s    500ms    "
+                                                     "Le texte visible contient    ${texte}"]), _SHOWS)
+            scenario.add("action", f"j'attends jusqu'à {args['seconds']} secondes que le cadre \"{frame}\" affiche "
+                                   f"{_quote(result.value or args['text'])}")
+        else:
+            scenario.common("wait", "action", f"j'attends jusqu'à {args['seconds']} secondes que la page affiche "
+                                              f"{_quote(result.value or args['text'])}")
+    elif action.name == "check_text":
+        if args.get("absent"):
+            scenario.common("hides", "résultat", f"la page n'affiche pas {_quote(args['text'])}")
+        elif result.frame:  # texte trouvé dans un cadre
+            frame = frames.get(result.frame)
+            scenario.define(f'le cadre "{frame}" affiche "${{texte}}"', _in_frame(result.frame, ["La page affiche    ${texte}"]),
+                            _SHOWS)
+            scenario.add("résultat", f"le cadre \"{frame}\" affiche {_quote(result.value or args['text'])}")
+        else:
+            scenario.common("shows", "résultat", f"la page affiche {_quote(result.value or args['text'])}")
+    elif action.name == "check_url":
+        kind, verb = ("no_url", "ne contient pas") if args.get("absent") else ("url", "contient")
+        scenario.common(kind, "résultat", f"l'URL {verb} {_quote(args['contains'])}")
+    elif action.name == "check_order":
+        texts = [_quote(text) for text in args["texts"]]
+        scenario.common("order", "résultat", f"la page affiche dans cet ordre : {', '.join(texts[:-1])} et {texts[-1]}")
+    elif action.name == "check_count":
+        scenario.common("count", "résultat", f"la page affiche {args['count']} fois {_quote(args['text'])}")
+    elif action.name == "check_visual":
+        scenario.common("visual", "résultat", f"l'écran montre {_quote(args['expected'])}")
+    else:
+        _element_step(scenario, names, action, result)
+
+
 def _element_step(scenario: _Scenario, names: _Names, action, result) -> None:
-    """Étape sur un élément : la phrase cite l'élément par son nom, le mot-clé connaît son localisateur."""
+    """Étape sur un élément : la phrase cite l'élément par son nom, le mot-clé connaît son localisateur (et son cadre)."""
     element, args = result.element, action.args
     if element is None:
         return
     name, feminine = names.get(element)
-    locator = robot_locator(element)
+    locator = robot_arg(robot_locator(element))
+
+    def define(keyword_name: str, lines: list[str], block: str | None = None) -> None:
+        if element.shadow and action.name in ("click", "fill", "select"):
+            # Selenium n'attend pas un élément désigné en JavaScript (dom:) : on attend qu'il apparaisse
+            lines = [f"Wait Until Page Contains Element    {locator}"] + lines
+        scenario.define(keyword_name, _in_frame(element.frame, lines), block)
+
     if action.name == "click":
         sentence = f"je clique sur {name}"
-        scenario.define(sentence, [f"Click Element    {locator}"])
+        define(sentence, [f"Click Element    {locator}"])
         scenario.add("action", sentence)
     elif action.name == "fill":
-        scenario.define(f'je saisis "${{texte}}" dans {name}', [f"Input Text    {locator}    ${{texte}}"])
+        define(f'je saisis "${{texte}}" dans {name}', [f"Input Text    {locator}    ${{texte}}"])
         scenario.add("action", f"je saisis {_quote(args['text'])} dans {name}")
     elif action.name == "select":
         # Libellé (« Prix croissant ») ou valeur (« price ») : les deux sont acceptés, comme pour l'agent
-        scenario.define(f'je choisis "${{option}}" dans {name}', [
+        define(f'je choisis "${{option}}" dans {name}', [
             f"${{par_libelle}}=    Run Keyword And Return Status    Select From List By Label    {locator}    ${{option}}",
             f"IF    not ${{par_libelle}}    Select From List By Value    {locator}    ${{option}}",
         ])
         scenario.add("action", f"je choisis {_quote(args['value'])} dans {name}")
     elif action.name == "check_value":
-        keyword = {"select": "List Selection Should Be", "textarea": "Textarea Value Should Be"}.get(
-            element.tag, "Textfield Value Should Be")
+        regex = bool(args.get("regex"))
+        keyword, block = value_keyword(element, regex)
         wait = "Wait Until Keyword Succeeds    ${DELAI}    200ms    "
-        if args["value"] == "":
+        if regex:  # un format : un code généré, une date...
+            define(f'{name} correspond au motif "${{motif}}"', [f"{wait}{keyword}    {locator}    ${{motif}}"], block)
+            scenario.add("résultat", f"{name} correspond au motif {_quote(args['value'])}")
+        elif args["value"] == "":
             sentence = f"{name} est vide"
-            scenario.define(sentence, [f"{wait}{keyword}    {locator}    ${{EMPTY}}"])
+            define(sentence, [f"{wait}{keyword}    {locator}    ${{EMPTY}}"], block)
             scenario.add("résultat", sentence)
         else:
             verb = "indique" if element.tag == "select" else "contient"
-            scenario.define(f'{name} {verb} "${{valeur}}"', [f"{wait}{keyword}    {locator}    ${{valeur}}"])
+            define(f'{name} {verb} "${{valeur}}"', [f"{wait}{keyword}    {locator}    ${{valeur}}"], block)
             scenario.add("résultat", f"{name} {verb} {_quote(args['value'])}")
     elif action.name == "check_state":
         state = args["state"]
         sentence = f"{name} est {_FEMININE[state] if feminine else STATE_LABELS[state]}"
         keyword, *extra = _state_keyword(element, state)
-        scenario.define(sentence, ["Wait Until Keyword Succeeds    ${DELAI}    200ms    " + SEP.join([keyword, locator, *extra])])
+        define(sentence, ["Wait Until Keyword Succeeds    ${DELAI}    200ms    " + SEP.join([keyword, locator, *extra])])
         scenario.add("résultat", sentence)
 
 

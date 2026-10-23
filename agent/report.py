@@ -25,13 +25,23 @@ def _target(step: Step) -> str:
         return " "
     args = action.args
     if result.element is not None:
-        selector = result.element.selector + (f" (n°{result.element.nth + 1})" if result.element.nth is not None else "")
+        element = result.element
+        selector = f"`{element.selector}`" + (f" (n°{element.nth + 1})" if element.nth is not None else "")
+        if element.shadow:  # composant web : le sélecteur s'applique dans son Shadow DOM
+            selector += f" dans `{element.shadow[-1]['css']}`"
+        if element.frame:
+            selector += f" (cadre « {element.frame_label()} »)"
         if "state" in args:
-            return f"`{selector}` : {STATE_LABELS[args['state']]}"
+            return f"{selector} : {STATE_LABELS[args['state']]}"
         if action.name == "check_value" and args["value"] == "":
-            return f"`{selector}` ← (vide)"
+            return f"{selector} ← (vide)"
         value = args.get("text") or args.get("value")
-        return f"`{selector}`" + (f" ← « {value} »" if value else "")
+        pattern = " (motif)" if args.get("regex") else ""
+        return selector + (f" ← « {value} »{pattern}" if value else "")
+    if action.name == "wait":
+        return (f"« {args['text']} » ({args['seconds']} s au plus)" if "text" in args else f"{args['seconds']} s")
+    if action.name == "dialog":  # réponse prévue à la prochaine fenêtre JavaScript
+        return ("OK" if args["accept"] else "Annuler") + (f" ← « {args['text']} »" if "text" in args else "")
     if "texts" in args:  # check_order
         return " puis ".join(f"« {text} »" for text in args["texts"])
     if "count" in args:  # check_count
@@ -61,7 +71,13 @@ def _outcome(step: Step) -> str:
         return "✅ vérifié"
     if step.result.check is False:
         return "❌ échec"
-    return "OK" if step.result.ok else f"⚠️ {step.result.detail}"
+    if not step.result.ok:
+        return f"⚠️ {step.result.detail}"
+    dialog = step.result.dialog
+    if dialog is not None:  # fenêtre JavaScript ouverte par l'action, et la réponse donnée
+        message = " ".join(str(dialog["message"]).split())
+        return f"OK, fenêtre « {message} » : {'OK' if dialog['accepted'] else 'Annuler'}"
+    return "OK"
 
 
 def build_report(run: RunResult) -> str:

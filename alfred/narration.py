@@ -62,8 +62,13 @@ def element_name(element: Element | None) -> str:
     if element.tag == "select":
         name = attrs.get("label") or attrs.get("aria") or attrs.get("name") or attrs.get("id") or attrs.get("test_id")
         return f"la liste {q(name)}" if name else "la liste"
-    label = text or attrs.get("aria") or attrs.get("test_id") or attrs.get("id")
-    kind = "le lien" if element.tag == "a" else "le bouton"
+    if element.editable() or element.is_field():  # zone de texte riche, liste « maison » (une div focalisable)
+        noun, _ = element.noun()
+        return f"{noun} {q(element.label())}"
+    # Un bouton dont le texte n'est qu'une icône (⚙, ×) se nomme par son aria-label
+    shown = text if any(ch.isalnum() for ch in text) else ""
+    label = shown or attrs.get("aria") or attrs.get("title") or text or attrs.get("test_id") or attrs.get("id")
+    kind, _ = element.noun()  # le bouton, le lien, l'option d'une liste « maison », l'onglet...
     return f"{kind} {q(label)}" if label else kind
 
 
@@ -104,9 +109,19 @@ def action_label(action: Action | None, element: Element | None = None) -> str:
         if args["count"] == 0:
             return f"Vérification : {q(args['text'])} n'apparaît pas"
         return f"Vérification : {q(args['text'])} apparaît {times(args['count'])}"
+    if action.name == "wait":
+        if "text" in args:
+            return f"Attente de {q(args['text'])}, {args['seconds']} s au plus"
+        return f"Pause de {args['seconds']} s"
+    if action.name == "dialog":
+        answer = "OK" if args["accept"] else "Annuler"
+        typed = f", avec la saisie {q(args['text'])}" if "text" in args else ""
+        return f"Réponse prévue à la prochaine fenêtre : {answer}{typed}"
     if action.name == "check_value":
         if is_secret(element):
             return f"Vérification du mot de passe saisi dans {element_name(element)}"
+        if args.get("regex"):
+            return f"Vérification : {element_name(element)} suit le motif {q(args['value'])}"
         if args["value"] == "":
             return f"Vérification : {element_name(element)} est vide"
         verb = "indique" if element is not None and element.tag == "select" else "contient"
@@ -145,9 +160,17 @@ def action_speech(action: Action, element: Element | None = None, number: int = 
         if args["count"] == 0:
             return f"Je vérifie que {q(args['text'])} n'apparaît pas."
         return f"Je vérifie que {q(args['text'])} apparaît {times(args['count'])}."
+    if action.name == "wait":
+        if "text" in args:
+            return f"J'attends que {q(args['text'])} s'affiche."
+        return f"J'attends {args['seconds']} secondes."
+    if action.name == "dialog":
+        return f"À la prochaine fenêtre, je répondrai {'OK' if args['accept'] else 'Annuler'}."
     if action.name == "check_value":
         if is_secret(element):
             return "Je vérifie le mot de passe saisi."
+        if args.get("regex"):
+            return f"Je vérifie le format de {element_name(element)}."
         if args["value"] == "":
             return f"Je vérifie que {element_name(element)} est vide."
         return f"Je vérifie le contenu de {element_name(element)}."
@@ -169,6 +192,9 @@ def step_speech(step: Step) -> str | None:
         return f"La vérification a échoué. {result.detail}"
     if not result.ok:
         return "L'action n'a pas abouti. Je cherche une autre solution."
+    if result.dialog is not None:  # fenêtre JavaScript ouverte par l'action
+        answer = "OK" if result.dialog["accepted"] else "Annuler"
+        return _cut(f"Une fenêtre affichait {q(' '.join(str(result.dialog['message']).split()))}. J'ai répondu {answer}.")
     return None
 
 

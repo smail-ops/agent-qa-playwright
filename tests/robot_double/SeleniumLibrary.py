@@ -9,11 +9,17 @@ Chrome et de son pilote, avec les mêmes règles que la vraie bibliothèque
 seul élément de la page.
 
 Le vrai SeleniumLibrary, avec Chrome, est utilisé dans GitHub Actions (job robot).
+
+Limite du double : Playwright doit répondre à une fenêtre JavaScript dès qu'elle
+s'ouvre, alors que Selenium y répond plus tard (Handle Alert). Le double répond
+donc OK à chaque fenêtre et note son message : « Handle Alert » ne prend en
+charge que la réponse ACCEPT. Le vrai SeleniumLibrary vérifie les autres.
 """
 
 from __future__ import annotations
 
 import re
+import time
 
 from playwright.sync_api import expect, sync_playwright
 from robot.api import logger
@@ -27,6 +33,9 @@ class SeleniumLibrary:
         self._timeout_ms = timestr_to_secs(timeout) * 1000
         self._implicit_wait_ms = timestr_to_secs(implicit_wait) * 1000
         self._playwright = self._browser = self._page = None
+        self._frame = None  # cadre sélectionné (Select Frame), None pour la page
+        self._alerts: list[str] = []  # messages des fenêtres JavaScript pas encore traitées par Handle Alert
+        self._dom_count = 0
 
     def open_browser(self, url: str, browser: str = "firefox", options=None):
         # options : préférences de Chrome (OPTIONS_CHROME), sans objet pour le Chromium de Playwright.
@@ -35,7 +44,14 @@ class SeleniumLibrary:
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch()
         self._page = self._browser.new_page()
+        self._page.on("dialog", self._dialog)
+        self._frame, self._alerts = None, []
         self._page.goto(url)
+
+    def _dialog(self, dialog):
+        # Selenium affiche le message sur une ligne (Handle Alert)
+        self._alerts.append(" ".join(dialog.message.splitlines()))
+        dialog.accept()
 
     def close_browser(self):
         if self._browser:
@@ -45,6 +61,31 @@ class SeleniumLibrary:
 
     def go_to(self, url: str):
         self._page.goto(url)
+        self._frame = None  # comme Selenium : une navigation revient à la page
+
+    def select_frame(self, locator: str):
+        element = self._find(locator)
+        if element.evaluate("e => e.tagName.toLowerCase()") not in ("iframe", "frame"):
+            raise AssertionError(f"Element '{locator}' is not a frame.")
+        self._frame = element.element_handle().content_frame()
+
+    def unselect_frame(self):
+        self._frame = None
+
+    def handle_alert(self, action: str = "ACCEPT", timeout=None):
+        if action.upper() != "ACCEPT":
+            raise AssertionError(f"Le double de SeleniumLibrary répond OK à toutes les fenêtres : action {action} "
+                                 "vérifiée seulement avec le vrai SeleniumLibrary.")
+        limit = time.monotonic() + (timestr_to_secs(timeout) if timeout else self._timeout_ms / 1000)
+        while not self._alerts:
+            if time.monotonic() > limit:
+                raise AssertionError(f"Alert not found in {timeout or f'{self._timeout_ms / 1000:g} seconds'}.")
+            self._page.wait_for_timeout(100)
+        return self._alerts.pop(0)
+
+    def input_text_into_alert(self, text: str, action: str = "ACCEPT", timeout=None):
+        raise AssertionError("Le double de SeleniumLibrary ne sait pas remplir une fenêtre de saisie : "
+                             "vérifiée seulement avec le vrai SeleniumLibrary.")
 
     def set_window_size(self, width: int, height: int, inner: bool = False):
         self._page.set_viewport_size({"width": width, "height": height})
@@ -61,6 +102,14 @@ class SeleniumLibrary:
     def select_from_list_by_label(self, locator: str, *labels: str):
         self._find(locator).select_option(label=list(labels))
 
+    def wait_until_page_contains_element(self, locator: str, timeout=None, error=None, limit=None):
+        delay = timestr_to_secs(timeout) if timeout else self._timeout_ms / 1000
+        end = time.monotonic() + delay
+        while self._locate(locator).count() == 0:
+            if time.monotonic() > end:
+                raise AssertionError(error or f"Element '{locator}' did not appear in {delay:g} seconds.")
+            self._page.wait_for_timeout(100)
+
     def wait_until_location_contains(self, expected: str):
         expect(self._page).to_have_url(re.compile(re.escape(expected)), timeout=self._timeout_ms)
 
@@ -68,8 +117,17 @@ class SeleniumLibrary:
         expect(self._page).not_to_have_url(re.compile(re.escape(location)), timeout=self._timeout_ms)
 
     def execute_javascript(self, *code: str):
-        # Selenium exécute le code comme le corps d'une fonction anonyme
-        return self._page.evaluate("() => {" + "".join(code) + "}")
+        # Selenium exécute le code comme le corps d'une fonction anonyme, dans le cadre sélectionné
+        return self._scope().evaluate("() => {" + "".join(code) + "}")
+
+    def get_text(self, locator: str) -> str:
+        return self._find(locator).inner_text()
+
+    def get_value(self, locator: str) -> str:
+        return self._find(locator).input_value()
+
+    def get_selected_list_label(self, locator: str) -> str:
+        return self._find(locator, "select").evaluate("e => e.selectedIndex >= 0 ? e.options[e.selectedIndex].text.trim() : ''")
 
     # --- Vérifications sur un élément (mêmes messages d'erreur que SeleniumLibrary) ---
 
@@ -122,11 +180,27 @@ class SeleniumLibrary:
         element = self._find(locator)
         return element.is_enabled() and element.get_attribute("readonly") is None
 
+    def element_text_should_be(self, locator: str, expected: str, message: str | None = None, ignore_case: bool = False):
+        actual = self._find(locator).inner_text()
+        if (actual.lower() != expected.lower()) if ignore_case else (actual != expected):
+            raise AssertionError(message or f"The text of element '{locator}' should have been '{expected}' but it was '{actual}'.")
+
+    def _scope(self):
+        return self._frame or self._page
+
     def _locate(self, locator: str):
         strategy, _, value = locator.partition(":")
+        if strategy == "dom":  # expression JavaScript qui renvoie l'élément, comme SeleniumLibrary
+            handle = self._scope().evaluate_handle(f"() => {value}")
+            element = handle.as_element()
+            if element is None:
+                return self._scope().locator("[data-double-dom=absent]")
+            self._dom_count += 1
+            element.evaluate("(e, n) => e.setAttribute('data-double-dom', n)", str(self._dom_count))
+            return self._scope().locator(f'[data-double-dom="{self._dom_count}"]')
         if strategy not in ("css", "xpath"):
             raise AssertionError(f"Localisateur inattendu : {locator}")
-        return self._page.locator(value if strategy == "css" else f"xpath={value}")
+        return self._scope().locator(value if strategy == "css" else f"xpath={value}")
 
     def _find(self, locator: str, tag: str | None = None, kind: str | None = None):
         found = self._locate(locator)
