@@ -163,7 +163,7 @@ Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du proj
 
 Alfred comprend deux sortes de phrases :
 
-- **Les commandes simples**, comprises dans la page, sans IA et sans quota : « lance la démo », « lance le cas 2 », « vas-y », « arrête », « ouvre le rapport », « ouvre la fiche d'anomalie ».
+- **Les commandes simples**, comprises dans la page, sans IA et sans quota : « lance la démo », « lance le cas 2 », « vas-y », « arrête », « ouvre le rapport », « ouvre la fiche d'anomalie ». « Qui es-tu ? » et « présente-toi » aussi : Alfred se présente, même sans clé d'API.
 - **Tout le reste** : une question ou une demande libre part au modèle (Gemini ou Claude), avec le contexte utile : la liste des cas de test, le cas affiché, la mission en cours et les derniers résultats (statut, vérifications en échec, diagnostic de l'IA). Une requête par phrase.
 
 Quelques exemples :
@@ -171,6 +171,7 @@ Quelques exemples :
 | Ce que tu dis | Ce que fait Alfred |
 |---|---|
 | « Pourquoi le dernier test a échoué ? » | il répond à partir du résultat et du diagnostic, et propose d'ouvrir la fiche d'anomalie |
+| « Comment fonctionnes-tu ? », « Quelles sont tes limites ? » | il répond à partir de sa fiche : version, auteur, fonctionnement de l'agent, tests générés et limites |
 | « Quels tests ont échoué aujourd'hui ? » | il les cite, à partir des résultats du jour |
 | « Refais le test de connexion sur le site de recette » | il choisit le bon cas, change l'adresse et lance la mission |
 | « Vérifie qu'on ne peut pas commander sans code postal » | il rédige le cas au format CT, l'affiche, et le lance quand tu dis « vas-y » |
@@ -436,7 +437,7 @@ Avec Gemini ou Claude, le modèle reçoit ensuite les faits (cas de test, histor
 
 ## Tests du projet
 
-Les 312 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet.
+Les 315 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet.
 
 ```bash
 pytest
