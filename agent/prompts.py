@@ -48,6 +48,7 @@ Règles :
 9. Une fenêtre JavaScript (alerte, confirmation) reçoit OK par défaut, et son message apparaît dans le résultat de l'action qui l'a ouverte. Pour répondre Annuler, ou remplir une fenêtre de saisie, utilise dialog juste avant cette action.
 10. Pour un résultat qui met du temps à s'afficher (chargement de plusieurs secondes), utilise wait avec le texte attendu, puis vérifie-le.
 11. Les données personnelles de la page (e-mail, téléphone, carte, IBAN) peuvent être remplacées par un repère comme « [e-mail masqué] » : ne saisis et ne vérifie jamais ce repère.
+12. Un bandeau de cookies est accepté par le programme avant ton tour (étape « cookies » de l'historique) : une étape qui demande de l'accepter est alors faite. S'il couvre encore la page, accepte-le toi-même.
 """
 
 # Ajouté aux consignes quand la vision est activée : le modèle reçoit aussi la capture d'écran.
@@ -67,6 +68,8 @@ def describe_step(step: Step) -> str:
     typed = ' "' + args["text"] + '"' if "text" in args else ""
     if action.name == "wait":
         value = f"{args['seconds']} s{typed}"
+    elif action.name == "cookies":  # fait par le programme, sans le modèle
+        value = f'"{args["bouton"]}"'
     elif action.name == "dialog":
         value = ("OK" if args["accept"] else "Annuler") + typed
     elif "texts" in args:

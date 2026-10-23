@@ -9,7 +9,8 @@ Prudence :
 - seuls les liens du même site sont suivis, jamais ceux qui pourraient changer
   quelque chose (déconnexion, suppression, paiement...) ;
 - aucun bouton n'est cliqué et aucun formulaire n'est envoyé, sauf celui de
-  connexion quand un compte de test est fourni ;
+  connexion quand un compte de test est fourni, et le bouton qui accepte un
+  bandeau de cookies (voir cookies.py) ;
 - le mot de passe sert seulement à cette connexion : il n'est ni dans le
   relevé, ni envoyé au modèle, ni enregistré.
 """
@@ -25,6 +26,7 @@ from urllib.parse import urldefrag, urlsplit
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, sync_playwright
 
+from . import cookies
 from .browser import Element, observe
 from .execution import VIEWPORT
 from .masquage import mask
@@ -279,6 +281,8 @@ def explore(page: Page, url: str, username: str | None = None, password: str | N
             continue
         if _key(page.url) != _key(target) and _key(page.url) in seen:
             continue  # redirection vers une page déjà vue
+        # Un bandeau de cookies couvrirait la page et ses boutons : accepté, comme le ferait un testeur
+        cookies.dismiss(page, cookies.WAIT_S if not analysis.pages else 0.0)
         summary, links = summarize(page, url, vision and len(analysis.images()) < MAX_SHOTS)
         add(summary)
         if len(analysis.pages) == 1 and analysis.username and password:

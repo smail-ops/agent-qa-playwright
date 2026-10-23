@@ -166,6 +166,7 @@ class MissionManager:
             "detail": step.result.detail,
             "screenshot": mission.url(step.screenshot) if step.screenshot else None,
             "memory": step.source == "memoire",
+            "programme": step.source == "programme",  # bandeau de cookies accepté sans IA
             "say": narration.step_speech(step),
         }
 

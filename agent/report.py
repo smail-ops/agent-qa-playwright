@@ -40,6 +40,8 @@ def _target(step: Step) -> str:
         return selector + (f" ← « {value} »{pattern}" if value else "")
     if action.name == "wait":
         return (f"« {args['text']} » ({args['seconds']} s au plus)" if "text" in args else f"{args['seconds']} s")
+    if action.name == "cookies":  # bandeau accepté par le programme
+        return f"« {args['bouton']} » ({args['outil'] or 'bandeau du site'})"
     if action.name == "dialog":  # réponse prévue à la prochaine fenêtre JavaScript
         return ("OK" if args["accept"] else "Annuler") + (f" ← « {args['text']} »" if "text" in args else "")
     if "texts" in args:  # check_order
@@ -110,6 +112,8 @@ def build_report(run: RunResult) -> str:
         reason = step.action.reason if step.action else step.result.detail
         if step.source == "memoire":
             reason = f"Mémoire : {reason}"
+        elif step.source == "programme":  # bandeau de cookies accepté par le programme
+            reason = f"Sans IA : {reason}"
         capture = f"[voir]({step.screenshot})" if step.screenshot else " "
         lines.append(
             f"| {step.number} | {action} | {_cell(_target(step))} | {_cell(_outcome(step))} | {_cell(reason)} | {capture} |"

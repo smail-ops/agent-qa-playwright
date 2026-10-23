@@ -1156,6 +1156,7 @@ URL : https://www.saucedemo.com/
     const corps = element("span", "etape-corps");
     corps.append(element("span", "etape-libelle", d.label));
     if (d.memory) corps.prepend(element("span", "etape-memoire", "Mémoire"));
+    if (d.programme) corps.prepend(element("span", "etape-memoire", "Sans IA"));  // bandeau de cookies accepté par le programme
     if (d.reason) {
       const raison = element("span", "etape-raison", d.reason);
       raison.title = d.reason;

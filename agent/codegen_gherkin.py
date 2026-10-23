@@ -30,8 +30,8 @@ import re
 from typing import TYPE_CHECKING
 
 from .actions import STATE_LABELS
-from .codegen_robot import (_ALERTS, _COUNT, _HIDES, _OPEN, _ORDER, _SHOWS, _VISIBLE, TEXT_BLOCKS, VARIABLES, _state_keyword,
-                            frame_locator, robot_arg, robot_locator, value_keyword)
+from .codegen_robot import (_ALERTS, _COOKIES, _COUNT, _HIDES, _OPEN, _ORDER, _SHOWS, _VISIBLE, TEXT_BLOCKS, VARIABLES,
+                            _state_keyword, frame_locator, robot_arg, robot_locator, value_keyword)
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -181,6 +181,11 @@ class _Scenario:
         self.blocks: list[str] = []  # mots-clés de vérification de codegen_robot
         self._last: str | None = None
 
+    @property
+    def last(self) -> str | None:
+        """Type de la dernière phrase : contexte, action ou résultat."""
+        return self._last
+
     def add(self, part: str, sentence: str) -> None:
         """part : contexte, action ou résultat. Deux phrases du même type à la suite : « Et »."""
         keyword = {"contexte": "Étant donné que", "action": "Quand", "résultat": "Alors"}[part]
@@ -237,7 +242,14 @@ def _dialog_step(scenario: _Scenario, dialog: dict) -> None:
 def _action_step(scenario: _Scenario, names: _Names, frames: _Frames, action, result) -> None:
     """Phrase d'une action réussie, autre que l'ouverture d'une page."""
     args = action.args
-    if action.name == "wait":
+    if action.name == "cookies":  # bandeau accepté par le programme : le scénario l'accepte s'il s'affiche
+        lines = [f"Accepter le bandeau de cookies    {robot_arg(args['robot'])}"]
+        sentence = "j'accepte le bandeau de cookies"
+        if scenario.keywords.get(sentence, lines) != lines:  # un second bandeau, différent (rare)
+            sentence += f" {_quote(_safe(args['bouton']))}"
+        scenario.define(sentence, lines, _COOKIES)
+        scenario.add("contexte" if scenario.last == "contexte" else "action", sentence)
+    elif action.name == "wait":
         if "text" not in args:
             scenario.common("sleep", "action", f"j'attends {args['seconds']} secondes")
         elif result.frame:  # texte attendu dans un cadre

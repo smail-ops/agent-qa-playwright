@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Lettre d'information</title>
+  <script>
+    // Outil de consentement (imitation locale) : comme les vrais, il déclare l'API de consentement des
+    // annonceurs (TCF) dès le début de la page, puis affiche son bandeau.
+    window.__tcfapi = function () {};
+  </script>
+  <style>
+    body { font-family: sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
+    form { display: grid; gap: 10px; margin: 24px 0; }
+    input[type=email] { padding: 8px; }
+    button { padding: 10px; cursor: pointer; }
+    /* Le bandeau couvre toute la page : sans réponse, aucun clic ne passe */
+    .fc-dialog-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); z-index: 1000; }
+    .fc-dialog { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(440px, 90vw);
+                 background: #fff; padding: 20px; border-radius: 8px; z-index: 1001; }
+    .fc-footer-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+  </style>
+</head>
+<body>
+  <h1>Lettre d'information</h1>
+  <p>Recevez les nouveautés de la boutique, une fois par mois.</p>
+
+  <form id="inscription">
+    <label for="email">Adresse e-mail</label>
+    <input id="email" name="email" type="email" required>
+    <label><input type="checkbox" id="conditions" name="conditions" required> Je souhaite recevoir la lettre</label>
+    <button type="submit" data-test="inscrire">S'inscrire</button>
+  </form>
+  <p id="resultat" role="status"></p>
+
+  <script>
+    document.getElementById("inscription").addEventListener("submit", (event) => {
+      event.preventDefault();
+      document.getElementById("resultat").textContent = "Inscription enregistrée : vous recevrez la prochaine lettre.";
+    });
+
+    // Bandeau de consentement, avec la structure de celui de Google (Funding Choices), qu'on trouve par
+    // exemple sur automationexercise.com depuis l'Europe. Il ne revient pas une fois le choix fait.
+    if (!document.cookie.includes("consentement=oui")) {
+      const racine = document.createElement("div");
+      racine.className = "fc-consent-root";
+      racine.innerHTML = `
+        <div class="fc-dialog-overlay"></div>
+        <div class="fc-dialog" role="dialog" aria-modal="true" aria-label="Ce site demande votre consentement">
+          <p class="fc-dialog-headline">Ce site demande votre consentement pour utiliser vos données personnelles</p>
+          <p>Nos partenaires et nous utilisons des cookies pour mesurer l'audience et personnaliser les annonces.</p>
+          <div class="fc-footer-buttons">
+            <button class="fc-button fc-cta-manage-options">Gérer les options</button>
+            <button class="fc-button fc-cta-consent" aria-label="Autoriser"><p class="fc-button-label">Autoriser</p></button>
+          </div>
+        </div>`;
+      document.body.append(racine);
+      racine.querySelector(".fc-cta-consent").addEventListener("click", () => {
+        document.cookie = "consentement=oui; path=/";
+        racine.remove();
+      });
+    }
+  </script>
+</body>
+</html>
