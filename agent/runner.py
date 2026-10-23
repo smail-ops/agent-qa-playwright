@@ -32,6 +32,7 @@ from playwright.sync_api import Page
 
 from . import cookies
 from .actions import Action, parse_action
+from .coffre import Coffre
 from .browser import DATA_DIR, ActionResult, Observation, execute, observe, open_closed_shadows
 from .memoire import Memory, replay_action
 from .prompts import SYSTEM_PROMPT, VISION_PROMPT, build_user_message
@@ -79,6 +80,8 @@ class RunResult:
     anomaly_path: Path | None = None  # fiche d'anomalie (test en échec ou bloqué)
     diagnosis: dict | None = None  # analyse de l'échec par le modèle : nature, gravité, explication
     closed_shadow: bool = False  # la page avait des composants web fermés, ouverts pour le test
+    coffre: Coffre | None = None  # mots de passe du cas : les étapes ne gardent que leur repère
+    secrets: dict | None = None  # repère -> variable du fichier .env, pour les tests générés
 
     @property
     def checks(self) -> list[Step]:
@@ -138,6 +141,7 @@ class Agent:
         self.model_calls = 0
         self.page: Page | None = None  # onglet où agit l'agent : il change quand un clic ouvre un nouvel onglet
         self._closed_shadows = 0
+        self.coffre = Coffre()  # mots de passe du cas de test en cours
 
     def _emit(self, kind: str, **data) -> None:
         if self.on_event is not None:
@@ -188,8 +192,10 @@ class Agent:
 
     def _do(self, page: Page, action: Action, observation: Observation | None, out_dir: Path, number: int, raw: str = "",
             source: str = "") -> Step:
+        # L'étape garde le repère « [mot de passe] » ; seule l'action exécutée porte le vrai mot de passe
+        action = self.coffre.hide_action(action)
         self._emit("phase", phase="act", number=number, action=action, observation=observation)
-        result = execute(page, action, observation)
+        result = execute(page, self.coffre.reveal_action(action), observation)
         if result.page is not None:  # nouvel onglet, ou retour à un autre onglet : l'agent continue là
             self.page = page = result.page
         if action.name == "upload" and result.ok:  # le fichier accompagne les tests générés, qui le joignent aussi
@@ -249,6 +255,7 @@ class Agent:
 
     def run(self, page: Page, case: TestCase, out_dir: Path) -> RunResult:
         self.model_calls, self.page, self._closed_shadows = 0, page, 0
+        self.coffre = Coffre.from_case(case.text)
         open_closed_shadows(page.context)  # avant toute page : les composants fermés seront créés ouverts
         out_dir = Path(out_dir)
         (out_dir / "captures").mkdir(parents=True, exist_ok=True)
@@ -344,4 +351,5 @@ class Agent:
             final_page=final_page,
             vision=self.vision,
             closed_shadow=self._closed_shadows > 0,
+            coffre=self.coffre,
         )

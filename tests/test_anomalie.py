@@ -74,7 +74,7 @@ def test_fiche_d_anomalie_sans_ia(echec, demo_url):
     assert reproduire.splitlines() == [
         f"1. Ouvrir {demo_url}/index.html",
         "2. Saisir « standard_user » dans le champ « Identifiant »",
-        "3. Saisir « mauvais » dans le champ « Mot de passe »",
+        "3. Saisir « [mot de passe] » dans le champ « Mot de passe »",  # le mot de passe du cas n'est jamais écrit
         "4. Cliquer sur le bouton « Connexion »",  # la tentative ratée sur #bouton-absent n'y figure pas
     ]
     assert "- Texte « Produits » absent de la page" in fiche
@@ -82,6 +82,7 @@ def test_fiche_d_anomalie_sans_ia(echec, demo_url):
     assert "- La page des produits s'affiche : le texte « Produits » est visible" in fiche  # résultat attendu du cas
     assert "![Étape 6](captures/etape-06.png)" in fiche
     assert "Pas de diagnostic : démo sans IA" in fiche
+    assert "mauvais" not in fiche  # ni dans les étapes, ni dans le cas de test recopié en bas de la fiche
 
 
 def test_diagnostic_du_modele(echec, tmp_path):

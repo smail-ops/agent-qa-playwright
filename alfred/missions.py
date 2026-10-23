@@ -75,8 +75,9 @@ class Mission:
 class MissionManager:
     """Lance les missions, une à la fois, et garde celles de la session."""
 
-    def __init__(self, reports_dir: Path, max_steps: int = 20, memory_dir: Path | None = None):
+    def __init__(self, reports_dir: Path, max_steps: int = 20, memory_dir: Path | None = None, env_path: Path | str = ".env"):
         self.reports_dir = Path(reports_dir)
+        self.env_path = Path(env_path)  # les mots de passe des tests générés y sont rangés
         self.max_steps = max_steps
         self.memory_dir = Path(memory_dir) if memory_dir is not None else self.reports_dir.parent / "memoire"
         self.missions: dict[str, Mission] = {}
@@ -121,6 +122,7 @@ class MissionManager:
                 stop_event=mission.stop_event,
                 memory=mission.memory,
                 vision=mission.vision,
+                env_path=self.env_path,
             )
         except Exception as exc:  # navigateur absent, erreur inattendue... : la page doit le savoir
             message = f"{type(exc).__name__} : {exc}".strip()

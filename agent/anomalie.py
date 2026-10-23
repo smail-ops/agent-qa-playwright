@@ -200,7 +200,8 @@ def build_diagnosis_request(run: RunResult, lecture: documentation.Lecture | Non
     if lecture is not None and lecture.extraits:
         docs = ("## Documentation officielle de Playwright (extraits numérotés)\n\n"
                 + "\n\n".join(extrait.to_prompt() for extrait in lecture.extraits) + "\n\n")
-    return f"## Cas de test\n{run.case.text}\n\n{mask(facts, run.case.text)}{docs}Rédige le diagnostic en JSON."
+    case_text = run.coffre.hide(run.case.text) if run.coffre is not None else run.case.text  # sans mot de passe
+    return f"## Cas de test\n{case_text}\n\n{mask(facts, run.case.text)}{docs}Rédige le diagnostic en JSON."
 
 
 def parse_diagnosis(raw: str) -> dict:
@@ -305,7 +306,8 @@ def build_anomaly(run: RunResult, diagnosis: dict | None, missing: str = "") -> 
         lines.append(f"- Page affichée à la fin : {page.url} (titre : « {page.title} »)")
 
     lines += ["", "## Résultat attendu", ""]
-    lines += [f"- {line}" for line in expected_results(run.case.text)] or ["- Voir le cas de test ci-dessous."]
+    case_text = run.coffre.hide(run.case.text) if run.coffre is not None else run.case.text  # sans mot de passe
+    lines += [f"- {line}" for line in expected_results(case_text)] or ["- Voir le cas de test ci-dessous."]
 
     if failing is not None and failing.screenshot:
         lines += ["", "## Capture au moment de l'échec", "", f"![Étape {failing.number}]({failing.screenshot})"]
@@ -333,7 +335,7 @@ def build_anomaly(run: RunResult, diagnosis: dict | None, missing: str = "") -> 
             lines.append(f"- [{label}]({path.name}) : il rejoue le parcours et reproduit l'échec")
     if run.feature_path is not None:
         lines.append(f"- [Scénario Gherkin]({run.feature_path.name}) : le parcours en langage métier, à joindre au ticket")
-    lines += ["", "## Cas de test exécuté", "", "```markdown", run.case.text, "```", ""]
+    lines += ["", "## Cas de test exécuté", "", "```markdown", case_text, "```", ""]
     return "\n".join(lines)
 
 
