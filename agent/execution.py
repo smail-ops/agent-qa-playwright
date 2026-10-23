@@ -13,6 +13,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+from . import coffre
 from .anomalie import diagnose, needs_analysis, write_anomaly
 from .codegen import write_script
 from .codegen_gherkin import write_gherkin
@@ -42,6 +43,16 @@ def memory_for(provider: Provider, folder: str | Path = "memoire") -> Memory | N
     return None if provider.name == "scripted" else Memory(folder)
 
 
+def store_secrets(result: RunResult, env_path: str | Path = ".env") -> dict[str, str]:
+    """Range dans le fichier .env les mots de passe tapés pendant le test : les tests générés les y liront."""
+    if result.coffre is None or not result.coffre.secrets:
+        return {}
+    used = [placeholder for step in result.steps if step.action is not None and step.result.ok
+            for value in (step.action.args.get("text"), step.action.args.get("value")) if isinstance(value, str)
+            for placeholder in result.coffre.placeholders_in(value)]
+    return coffre.store(result.case.url, result.coffre, list(dict.fromkeys(used)), env_path)
+
+
 def run_case(
     case: TestCase,
     provider: Provider,
@@ -54,8 +65,12 @@ def run_case(
     stop_event: threading.Event | None = None,
     memory: Memory | None = None,
     vision: bool = False,
+    env_path: str | Path = ".env",
 ) -> RunResult:
-    """Lance le navigateur, exécute le cas de test, puis écrit le rapport et les tests générés."""
+    """Lance le navigateur, exécute le cas de test, puis écrit le rapport et les tests générés.
+
+    Les mots de passe que les tests générés devront taper sont rangés dans le fichier .env (env_path).
+    """
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=not headed)
         try:
@@ -66,6 +81,7 @@ def run_case(
             result.browser = f"Chromium {browser.version}"
         finally:
             browser.close()
+    result.secrets = store_secrets(result, env_path)
     write_script(result)
     write_robot(result)
     write_gherkin(result)
