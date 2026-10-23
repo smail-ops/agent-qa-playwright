@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .masquage import mask
+
 if TYPE_CHECKING:
     from .browser import Observation
     from .runner import Step
@@ -22,13 +24,15 @@ Réponds uniquement avec un objet JSON, sans aucun texte autour :
 Actions disponibles :
 - goto : {"url": "..."} ouvre une URL
 - click : {"ref": 3} clique sur l'élément numéro 3
-- fill : {"ref": 1, "text": "..."} remplit un champ avec ce texte
-- select : {"ref": 5, "value": "..."} choisit une option dans une liste déroulante
+- fill : {"ref": 1, "text": "..."} remplit un champ ou une zone de texte avec ce texte
+- select : {"ref": 5, "value": "..."} choisit une option dans une liste déroulante (élément select)
+- wait : {"seconds": 15, "text": "..."} attend jusqu'à ce nombre de secondes (30 au plus) que ce texte s'affiche, pour un chargement lent. Sans "text", attend simplement ce nombre de secondes.
+- dialog : {"accept": true | false} réponse à donner à la prochaine fenêtre JavaScript (alerte, confirmation), avant l'action qui l'ouvre. Ajoute "text": "..." pour remplir une fenêtre de saisie.
 - check_text : {"text": "..."} vérifie qu'un texte est présent sur la page. Ajoute "absent": true pour vérifier qu'il n'y est pas.
 - check_url : {"contains": "..."} vérifie que l'URL contient ce texte. Ajoute "absent": true pour vérifier qu'elle ne le contient pas.
 - check_order : {"texts": ["...", "..."]} vérifie que ces textes apparaissent dans cet ordre sur la page (tri d'une liste)
 - check_count : {"text": "...", "count": 2} vérifie que ce texte apparaît exactement ce nombre de fois sur la page
-- check_value : {"ref": 4, "value": "..."} vérifie le contenu d'un champ ou l'option choisie dans une liste
+- check_value : {"ref": 4, "value": "..."} vérifie le contenu d'un champ, d'une zone de texte ou l'option choisie dans une liste. Ajoute "regex": true quand le résultat attendu est un format et non une valeur exacte (un code généré, une date) : "value" est alors une expression régulière.
 - check_state : {"ref": 4, "state": "enabled" | "disabled" | "checked" | "unchecked"} vérifie qu'un élément est actif, grisé, coché ou décoché
 - finish : {"status": "PASS" | "FAIL" | "BLOQUE", "summary": "..."} termine le test
 
@@ -39,6 +43,11 @@ Règles :
 4. Vérifie chaque résultat attendu avant de terminer, avec la vérification la plus précise : check_order pour un ordre, check_count pour un nombre, check_value pour le contenu d'un champ, check_state pour un bouton grisé ou une case cochée, sinon check_text ou check_url. Pour un résultat attendu négatif (« ne s'affiche pas », « ne contient pas »), utilise "absent": true avec check_text ou check_url.
 5. Termine avec finish : PASS si toutes les vérifications ont réussi, FAIL si une vérification a échoué, BLOQUE si une étape est impossible (élément introuvable après deux essais, erreur bloquante).
 6. Si le cas de test est un scénario Gherkin, les lignes « Étant donné que » et « Quand » sont les étapes, les lignes « Alors » (et les « Et » qui les suivent) sont les résultats attendus.
+7. Les éléments d'un cadre (iframe) ou d'un composant web (Shadow DOM) sont dans la liste comme les autres, avec la mention « dans le cadre » ou « dans le composant ». Une zone « éditable » se remplit avec fill et se vérifie avec check_value.
+8. Une liste déroulante « maison », faite de div et non d'un élément select, se manipule avec click : clique sur la liste pour l'ouvrir, puis sur l'option au tour suivant.
+9. Une fenêtre JavaScript (alerte, confirmation) reçoit OK par défaut, et son message apparaît dans le résultat de l'action qui l'a ouverte. Pour répondre Annuler, ou remplir une fenêtre de saisie, utilise dialog juste avant cette action.
+10. Pour un résultat qui met du temps à s'afficher (chargement de plusieurs secondes), utilise wait avec le texte attendu, puis vérifie-le.
+11. Les données personnelles de la page (e-mail, téléphone, carte, IBAN) peuvent être remplacées par un repère comme « [e-mail masqué] » : ne saisis et ne vérifie jamais ce repère.
 """
 
 # Ajouté aux consignes quand la vision est activée : le modèle reçoit aussi la capture d'écran.
@@ -53,18 +62,25 @@ def describe_step(step: Step) -> str:
     result = step.result
     if step.action is None:
         return f"{step.number}. Réponse illisible : {result.detail}"
-    action = step.action
-    target = f" [{action.args['ref']}]" if "ref" in action.args else ""
-    if "texts" in action.args:
-        value = " puis ".join(f'"{t}"' for t in action.args["texts"])
+    action, args = step.action, step.action.args
+    target = f" [{args['ref']}]" if "ref" in args else ""
+    typed = ' "' + args["text"] + '"' if "text" in args else ""
+    if action.name == "wait":
+        value = f"{args['seconds']} s{typed}"
+    elif action.name == "dialog":
+        value = ("OK" if args["accept"] else "Annuler") + typed
+    elif "texts" in args:
+        value = " puis ".join(f'"{t}"' for t in args["texts"])
     else:
-        value = next((action.args[k] for k in ("url", "text", "value", "contains", "state", "expected") if k in action.args), "")
+        value = next((args[k] for k in ("url", "text", "value", "contains", "state", "expected") if k in args), "")
         value = f'"{value}"' if value else ""
-    if "count" in action.args:
-        value += f" x{action.args['count']}"
+    if "count" in args:
+        value += f" x{args['count']}"
     value = f" {value}" if value else ""
-    if action.args.get("absent"):
+    if args.get("absent"):
         value += " (absent)"
+    if args.get("regex"):
+        value += " (motif)"
     if result.check is True:
         status = "VÉRIFIÉ"
     elif result.check is False:
@@ -75,14 +91,18 @@ def describe_step(step: Step) -> str:
 
 
 def build_user_message(case: TestCase, steps: list[Step], observation: Observation) -> str:
-    """Message complet d'un tour : cas de test, historique et état de la page."""
+    """Message complet d'un tour : cas de test, historique et état de la page.
+
+    Les données personnelles de la page (e-mail, téléphone, carte, IBAN) sont masquées,
+    sauf celles que le cas de test donne lui-même : voir masquage.py.
+    """
     history = "\n".join(describe_step(s) for s in steps) or "(aucune)"
     return (
         "## Cas de test\n"
         f"{case.text}\n\n"
         "## Actions déjà réalisées\n"
-        f"{history}\n\n"
+        f"{mask(history, case.text)}\n\n"
         "## État actuel de la page\n"
-        f"{observation.to_prompt()}\n\n"
+        f"{mask(observation.to_prompt(), case.text)}\n\n"
         "Quelle est la prochaine action ? Réponds uniquement en JSON."
     )

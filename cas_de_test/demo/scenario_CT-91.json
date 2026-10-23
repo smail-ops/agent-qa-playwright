@@ -1,0 +1,18 @@
+[
+  {"action": "fill", "target": "#note", "args": {"text": "Livrer avant midi"}, "reason": "Étape 1 : saisie dans l'éditeur, placé dans un cadre (iframe)"},
+  {"action": "check_value", "target": "#note", "args": {"value": "Livrer avant midi"}, "reason": "Résultat attendu : la note contient le texte saisi"},
+  {"action": "click", "target": "#generer", "reason": "Étape 2 : le bouton est dans un composant web (Shadow DOM)"},
+  {"action": "check_value", "target": "#code", "args": {"value": "^PROMO-[0-9A-F]{4}-[0-9A-F]{4}$", "regex": true}, "reason": "Résultat attendu : le code suit le format PROMO-XXXX-XXXX"},
+  {"action": "check_text", "args": {"text": "Code prêt à copier"}, "reason": "Résultat attendu : message affiché par le composant"},
+  {"action": "click", "target": "xpath=//label[normalize-space(.)=\"Rôle\"]/following::div[@tabindex][1]", "reason": "Étape 3 : ouverture de la liste « maison » Rôle, faite de div"},
+  {"action": "click", "target": "div[role=\"option\"]:has-text(\"ESS\")", "reason": "Étape 3 : choix de l'option ESS"},
+  {"action": "check_value", "target": "xpath=//label[normalize-space(.)=\"Rôle\"]/following::div[@tabindex][1]", "args": {"value": "ESS"}, "reason": "Résultat attendu : la liste Rôle indique ESS"},
+  {"action": "check_text", "args": {"text": "Rôle : ESS"}, "reason": "Résultat attendu : le rôle choisi s'affiche"},
+  {"action": "dialog", "args": {"accept": true}, "reason": "Étape 4 : la fenêtre de confirmation recevra OK"},
+  {"action": "click", "target": "[data-test=\"envoyer\"]", "reason": "Étape 4 : envoi de la commande"},
+  {"action": "check_text", "args": {"text": "Commande envoyée"}, "reason": "Résultat attendu : la commande est envoyée"},
+  {"action": "click", "target": "[data-test=\"charger\"]", "reason": "Étape 5 : chargement du stock"},
+  {"action": "wait", "args": {"seconds": 10, "text": "Stock chargé"}, "reason": "Étape 5 : le chargement prend quelques secondes"},
+  {"action": "check_text", "args": {"text": "Stock chargé : 12 articles"}, "reason": "Résultat attendu : le stock s'affiche"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Cadre, composant web, liste maison, confirmation et chargement lent : tout est vérifié"}, "reason": "Toutes les vérifications sont passées"}
+]

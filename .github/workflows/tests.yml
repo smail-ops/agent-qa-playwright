@@ -31,12 +31,13 @@ jobs:
         run: pip install -r requirements.txt
       - name: Installer Chromium pour Playwright
         run: python -m playwright install --with-deps chromium
-      - name: Générer les tests avec les deux démos, puis les rejouer avec le vrai SeleniumLibrary
+      - name: Générer les tests avec les trois démos, puis les rejouer avec le vrai SeleniumLibrary
         run: |
           python -m http.server 8000 -d demo_site &
           sleep 1
           python -m agent cas_de_test/demo/CT-00_demo_locale.md --provider scripted --scenario cas_de_test/demo/scenario_CT-00.json
           python -m agent cas_de_test/demo/CT-90_demo_tri_et_commande.md --provider scripted --scenario cas_de_test/demo/scenario_CT-90.json
+          python -m agent cas_de_test/demo/CT-91_demo_iframe_shadow_dom.md --provider scripted --scenario cas_de_test/demo/scenario_CT-91.json
           robot --variable BROWSER:headlesschrome --outputdir resultats-robot rapports/*/*.robot
       # Le journal d'un job n'est lisible qu'une fois connecté : les annotations, elles, s'affichent sur la page du run
       - name: Afficher les tests Robot en échec sur la page du run

@@ -71,11 +71,20 @@ def test_campagne_terrain_vingt_cas_quatre_par_site():
     for site in SITES:  # deux parcours normaux, un cas négatif et un piège par site
         assert Counter(c.type for c in cas if c.site == site) == {"Parcours normal": 2, "Cas négatif": 1, "Piège": 1}
     verdicts = Counter(c.verdict for c in cas)
-    assert verdicts["FAIL"] >= 1 and verdicts["BLOQUE"] >= 1  # au moins un vrai défaut, et les limites connues
+    assert verdicts["FAIL"] >= 1  # au moins un vrai défaut
     assert f"En tout : {verdicts['PASS']} PASS, {verdicts['FAIL']} FAIL" in texte
     assert f"et {verdicts['BLOQUE']} BLOQUÉ attendus" in texte
     assert [c.code for c in cas if c.vision] == ["CT-30"]
     assert all(c.raison and c.fichier for c in cas)
+
+
+def test_oracle_de_la_version_0_4_garde_pour_le_bilan_avant():
+    """Les quatre pièges visaient des limites levées en version 0.5 : l'ancien oracle les attendait BLOQUÉ."""
+    ancien = {c.code: c.verdict for c in lire_campagne((TERRAIN / "campagne_v0.4.md").read_text(encoding="utf-8"))}
+    actuel = {c.code: c.verdict for c in lire_campagne(CAMPAGNE.read_text(encoding="utf-8"))}
+    assert ancien.keys() == actuel.keys()
+    assert {code for code in ancien if ancien[code] != actuel[code]} == {"CT-20", "CT-28", "CT-32", "CT-36"}
+    assert all(ancien[code] == "BLOQUE" and actuel[code] == "PASS" for code in ("CT-20", "CT-28", "CT-32", "CT-36"))
 
 
 def test_chaque_cas_de_la_campagne_a_son_fichier():

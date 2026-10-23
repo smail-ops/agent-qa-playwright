@@ -54,9 +54,21 @@ La page affiche ce nombre de fois
 
 Le texte visible apparaît
     [Arguments]    ${texte}    ${nombre}
-    ${visible}=    Execute Javascript    return document.body.innerText
+    ${visible}=    Texte visible de la page
     ${trouve}=    Evaluate    " ".join($visible.split()).lower().count(" ".join($texte.split()).lower())
     Should Be Equal As Integers    ${trouve}    ${nombre}    msg=« ${texte} » est affiché ${trouve} fois au lieu de ${nombre}.    values=False
+
+Texte visible de la page
+    [Documentation]    Texte affiché à l'écran, comme le lit l'agent : innerText ne renvoie pas un message caché.
+    ...    Le texte des composants web (Shadow DOM), que innerText ne contient pas, est ajouté à la fin.
+    ${texte}=    Execute Javascript
+    ...    const parts = [document.body.innerText];
+    ...    const visiter = (racine) => racine.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) {
+    ...    parts.push(Array.from(el.shadowRoot.children).filter((c) => !['STYLE', 'SCRIPT', 'TEMPLATE', 'LINK']
+    ...    .includes(c.tagName) && getComputedStyle(c).display !== 'none').map((c) => c.innerText || '').join(' '));
+    ...    visiter(el.shadowRoot); } });
+    ...    visiter(document); return parts.join(' ');
+    RETURN    ${texte}
 
 La page affiche dans l'ordre
     [Documentation]    Attend que les textes soient affichés dans cet ordre, par exemple après un tri.
@@ -66,7 +78,7 @@ La page affiche dans l'ordre
 
 Les textes visibles se suivent
     [Arguments]    @{textes}
-    ${visible}=    Execute Javascript    return document.body.innerText
+    ${visible}=    Texte visible de la page
     ${visible}=    Evaluate    " ".join($visible.split()).lower()
     ${debut}=    Set Variable    ${0}
     FOR    ${texte}    IN    @{textes}
