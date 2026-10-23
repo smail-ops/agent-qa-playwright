@@ -11,6 +11,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .browser import OPEN_SHADOW_JS
+from .coffre import env_names, split
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -94,6 +95,25 @@ def _dialog_code(dialog: dict) -> list[str]:
     return [f"# Fenêtre « {message} » : réponse {said}", f"page.once('dialog', lambda dialog: {answer})"]
 
 
+# Ajouté au script s'il tape un mot de passe : il le lit dans le fichier .env, jamais dans le test
+_SECRET_HELPERS = '''
+load_dotenv(find_dotenv(usecwd=True))  # les mots de passe de test sont dans le fichier .env du projet
+
+
+def secret(nom: str) -> str:
+    """Un mot de passe de test, lu dans le fichier .env (l'agent l'y a rangé)."""
+    valeur = os.environ.get(nom)
+    if not valeur:
+        raise RuntimeError(f"Ajoute {nom}=... dans le fichier .env du projet : ce test en a besoin.")
+    return valeur
+'''
+
+
+def _value_code(text: str, names: dict[str, str]) -> str:
+    """Le texte à taper ou à vérifier, en Python : un mot de passe devient secret('MOT_DE_PASSE_...')."""
+    return " + ".join(f"secret({value!r})" if is_secret else repr(value) for is_secret, value in split(text, names))
+
+
 def _new_tab_code(line: str, result) -> list[str]:
     """Une action qui ouvre un nouvel onglet : le test le récupère et continue dedans, comme l'agent."""
     if not result.opened_tab:
@@ -111,6 +131,7 @@ def generate_script(run: RunResult) -> str:
     lines: list[str] = []
     banners: list[str] = []  # bandeaux de cookies déjà pris en charge
     files = False  # fichiers joints : ils sont copiés à côté du test
+    names = env_names(run)  # repère du mot de passe -> variable du fichier .env
     if run.closed_shadow:  # avant toute page, comme pendant l'exploration
         lines += ["# Composants web fermés (Shadow DOM « closed ») : créés ouverts, sinon Playwright ne peut pas y entrer",
                   "page.context.add_init_script(OUVRIR_COMPOSANTS)"]
@@ -160,7 +181,7 @@ def generate_script(run: RunResult) -> str:
         elif action.name == "switch_tab":
             lines += [f"page = page.context.pages[{args['index'] - 1}]  # onglet n°{args['index']}", "page.bring_to_front()"]
         elif action.name == "fill":
-            lines.append(f"{locator_code(result.element)}.fill({args['text']!r})")
+            lines.append(f"{locator_code(result.element)}.fill({_value_code(args['text'], names)})")
         elif action.name == "select":
             lines.append(f"{locator_code(result.element)}.select_option({args['value']!r})")
         elif action.name == "wait":
@@ -187,6 +208,8 @@ def generate_script(run: RunResult) -> str:
             element = result.element
             if args.get("regex"):  # un format, pas une valeur exacte
                 expected = f"re.compile({args['value']!r})"
+            elif split(args["value"], names) != [(False, args["value"])]:  # un mot de passe : lu dans le .env
+                expected = _value_code(args["value"], names)
             else:  # vérification réussie : on reprend la valeur réelle (pour une liste, la valeur de l'option)
                 expected = repr(result.value if result.check and result.value is not None else args["value"])
             if element.reads_text():  # zone de texte riche, liste « maison » : son texte affiché
@@ -205,6 +228,9 @@ def generate_script(run: RunResult) -> str:
     body = "\n".join(f"    {line}" for line in lines) or "    pass"
     imports = "import re\nimport time\n" if counting else "import re\n"
     helpers = _COUNT_HELPERS if counting else ""
+    if "secret(" in body:
+        imports = "import os\n" + imports + "\nfrom dotenv import find_dotenv, load_dotenv\n"
+        helpers += _SECRET_HELPERS
     if files:
         imports += "from pathlib import Path\n"
         helpers += "\n# Fichiers joints pendant le test, copiés à côté de ce fichier\nDOSSIER = Path(__file__).resolve().parent\n"

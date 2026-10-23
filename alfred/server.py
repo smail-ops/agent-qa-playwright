@@ -166,7 +166,7 @@ class AlfredServer(ThreadingHTTPServer):
         super().__init__(address, AlfredHandler)
         self.cases_dir = Path(cases_dir)
         self.env_path = Path(env_path)  # le .env de cet ordinateur : clés d'API et prénom du maître
-        self.missions = MissionManager(Path(reports_dir), max_steps, memory_dir)
+        self.missions = MissionManager(Path(reports_dir), max_steps, memory_dir, self.env_path)
         self.memory = Memory(self.missions.memory_dir)
         self.proposing = threading.Lock()  # une proposition à la fois : chacune coûte une requête au modèle
         self.talking = threading.Lock()  # une phrase à la fois dans la conversation libre

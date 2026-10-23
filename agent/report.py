@@ -19,6 +19,11 @@ def _cell(text: object) -> str:
     return str(text).replace("|", "\\|").replace("\n", " ").strip() or " "
 
 
+def _hidden(run: RunResult, text: str) -> str:
+    """Le texte, sans les mots de passe du cas de test : un repère à leur place (voir coffre.py)."""
+    return run.coffre.hide(text) if run.coffre is not None else text
+
+
 def _target(step: Step) -> str:
     action, result = step.action, step.result
     if action is None:
@@ -166,7 +171,7 @@ def build_report(run: RunResult) -> str:
         lines += [f"- [`{path.name}`]({path.name}) : {tools}" for path, tools, _ in generated]
         lines += ["", "```"] + [f"{command} {path.name}" for path, _, command in generated if command] + ["```"]
 
-    lines += ["", "## Cas de test exécuté", "", "```markdown", run.case.text, "```", ""]
+    lines += ["", "## Cas de test exécuté", "", "```markdown", _hidden(run, run.case.text), "```", ""]
     return "\n".join(lines)
 
 
