@@ -241,7 +241,8 @@ class ScriptedProvider:
 
     Il permet de tester tout le reste du programme sans clé d'API ni réseau.
     Chaque étape du scénario peut désigner un élément par son sélecteur
-    (« target ») : le faux modèle retrouve alors son numéro dans la page.
+    (« target », et « target_to » pour l'élément où déposer) : le faux modèle
+    retrouve alors son numéro dans la page.
     """
 
     name = "scripted"
@@ -265,10 +266,10 @@ class ScriptedProvider:
         if step.get("error") == "rate_limit":  # permet de simuler une erreur 429 de l'API
             raise RateLimitError("quota simulé", step.get("retry_after"), step.get("daily", False))
         args = dict(step.get("args", {}))
-        target = step.get("target")
-        if target is not None:
-            element = next((e for e in observation.elements if e.selector == target), None)
-            args["ref"] = element.ref if element else -1
+        for key, arg in (("target", "ref"), ("target_to", "to")):  # target_to : où déposer (glisser-déposer)
+            if step.get(key) is not None:
+                element = next((e for e in observation.elements if e.selector == step[key]), None)
+                args[arg] = element.ref if element else -1
         return json.dumps(
             {"action": step["action"], "args": args, "reason": step.get("reason", "Étape du scénario")},
             ensure_ascii=False,

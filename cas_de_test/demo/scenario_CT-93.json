@@ -1,0 +1,17 @@
+[
+  {"action": "fill", "target": "#recherche", "args": {"text": "clavier"}, "reason": "Étape 1 : la recherche"},
+  {"action": "press", "target": "#recherche", "args": {"key": "Enter"}, "reason": "Étape 1 : pas de bouton, la recherche part avec Entrée"},
+  {"action": "check_text", "args": {"text": "Résultats pour « clavier » : 3 produits"}, "reason": "Résultat attendu : les résultats"},
+  {"action": "hover", "target": "#catalogue", "reason": "Étape 2 : le sous-menu s'ouvre au survol"},
+  {"action": "click", "target": "#lien-nouveautes", "reason": "Étape 2 : le lien du sous-menu"},
+  {"action": "check_text", "args": {"text": "Rayon : Nouveautés"}, "reason": "Résultat attendu : le rayon choisi"},
+  {"action": "click", "target": "#titre-projet", "args": {"double": true}, "reason": "Étape 3 : double-clic pour renommer"},
+  {"action": "check_text", "args": {"text": "Projet renommé"}, "reason": "Résultat attendu : le projet renommé"},
+  {"action": "click", "target": "#zone-fichier", "args": {"button": "right"}, "reason": "Étape 4 : clic droit"},
+  {"action": "check_text", "args": {"text": "Menu contextuel"}, "reason": "Résultat attendu : le menu s'ouvre"},
+  {"action": "press", "args": {"key": "Escape"}, "reason": "Étape 4 : Échap ferme le menu"},
+  {"action": "check_text", "args": {"text": "Menu fermé"}, "reason": "Résultat attendu : le menu se ferme"},
+  {"action": "scroll", "args": {"to": "bottom"}, "reason": "Étape 5 : les avis se chargent en bas de page"},
+  {"action": "check_text", "args": {"text": "Avis clients : 4,8 sur 5"}, "reason": "Résultat attendu : les avis"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Touches, survol, double-clic, clic droit et défilement : tous les résultats attendus sont vérifiés."}}
+]

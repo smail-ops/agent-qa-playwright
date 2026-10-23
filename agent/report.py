@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .actions import STATE_LABELS
+from .actions import STATE_LABELS, key_label
 from .anomalie import GRAVITES, NATURES
 
 if TYPE_CHECKING:
@@ -31,6 +31,16 @@ def _target(step: Step) -> str:
             selector += f" dans `{element.shadow[-1]['css']}`"
         if element.frame:
             selector += f" (cadre « {element.frame_label()} »)"
+        if action.name == "drag" and result.target is not None:
+            return f"{selector} → `{result.target.selector}`"
+        if action.name == "press":
+            return f"{selector} ← touche « {key_label(args['key'])} »"
+        if action.name == "upload":
+            return f"{selector} ← fichier « {args['file']} »"
+        if args.get("double"):
+            return f"{selector} (double-clic)"
+        if args.get("button") == "right":
+            return f"{selector} (clic droit)"
         if "state" in args:
             return f"{selector} : {STATE_LABELS[args['state']]}"
         if action.name == "check_value" and args["value"] == "":
@@ -40,6 +50,12 @@ def _target(step: Step) -> str:
         return selector + (f" ← « {value} »{pattern}" if value else "")
     if action.name == "wait":
         return (f"« {args['text']} » ({args['seconds']} s au plus)" if "text" in args else f"{args['seconds']} s")
+    if action.name == "press":
+        return f"touche « {key_label(args['key'])} »"
+    if action.name == "scroll":
+        return "bas de la page" if args.get("to") == "bottom" else "haut de la page"
+    if action.name == "switch_tab":
+        return f"onglet n°{args['index']}"
     if action.name == "cookies":  # bandeau accepté par le programme
         return f"« {args['bouton']} » ({args['outil'] or 'bandeau du site'})"
     if action.name == "dialog":  # réponse prévue à la prochaine fenêtre JavaScript
@@ -75,6 +91,8 @@ def _outcome(step: Step) -> str:
         return "❌ échec"
     if not step.result.ok:
         return f"⚠️ {step.result.detail}"
+    if step.result.opened_tab:
+        return "OK, nouvel onglet ouvert"
     dialog = step.result.dialog
     if dialog is not None:  # fenêtre JavaScript ouverte par l'action, et la réponse donnée
         message = " ".join(str(dialog["message"]).split())
@@ -98,6 +116,8 @@ def build_report(run: RunResult) -> str:
     ]
     if memory_note(run):
         lines.append(f"| Mémoire | {_cell(memory_note(run))} |")
+    if run.closed_shadow:
+        lines.append("| Composants fermés | Shadow DOM « closed » ouverts pour le test : l'agent et les tests générés y entrent |")
     lines += [
         "",
         f"**Conclusion :** {run.summary or 'aucune'}",

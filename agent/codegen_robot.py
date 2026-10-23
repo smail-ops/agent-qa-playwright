@@ -50,6 +50,8 @@ import json
 import re
 from typing import TYPE_CHECKING
 
+from .browser import OPEN_SHADOW_JS
+
 if TYPE_CHECKING:
     from .browser import Element
     from .runner import RunResult
@@ -240,6 +242,50 @@ _COOKIES = """Accepter le bandeau de cookies
     END
 """
 
+# Glisser-déposer HTML5 (attribut draggable) : Selenium ne sait pas le faire à la souris dans Chrome.
+# Le mot-clé envoie au navigateur les événements du glisser-déposer. Les lignes du code sont mises bout à bout.
+_DRAG = """Glisser-déposer
+    [Documentation]    Glisse l'élément et le dépose sur la cible. Pour un glisser-déposer HTML5 (attribut draggable),
+    ...    le mot-clé envoie les événements dragstart, dragover et drop : Selenium ne sait pas le faire à la souris.
+    [Arguments]    ${source}    ${cible}
+    ${depart}=    Get WebElement    ${source}
+    ${arrivee}=    Get WebElement    ${cible}
+    Execute Javascript
+    ...    const [depart, arrivee] = arguments; const donnees = new DataTransfer();
+    ...    const envoyer = (element, type) => element.dispatchEvent(new DragEvent(type,
+    ...    {bubbles: true, cancelable: true, dataTransfer: donnees}));
+    ...    envoyer(depart, 'dragstart'); envoyer(arrivee, 'dragenter'); envoyer(arrivee, 'dragover');
+    ...    envoyer(arrivee, 'drop'); envoyer(depart, 'dragend');
+    ...    ARGUMENTS    ${depart}    ${arrivee}
+"""
+
+# Composants web fermés : créés ouverts avant le chargement de la page, comme pendant l'exploration
+_CLOSED = f"""Ouvrir les composants fermés
+    [Documentation]    Les composants web fermés (Shadow DOM « closed ») sont créés ouverts, comme pendant l'exploration :
+    ...    sinon, Selenium ne peut pas y entrer. Chrome seulement (commande CDP), puis la page est rechargée.
+    ${{chrome}}=    Evaluate    $BROWSER.lower().replace(" ", "") in {CHROME_NAMES!r}
+    IF    not ${{chrome}}
+        Log    Les composants fermés ne s'ouvrent qu'avec Chrome : le test risque d'échouer avec ${{BROWSER}}.    level=WARN
+        RETURN
+    END
+    ${{selenium}}=    Get Library Instance    SeleniumLibrary
+    Evaluate    $selenium.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {{"source": $OUVRIR_COMPOSANTS}})
+    Reload Page
+"""
+CLOSED_VARIABLE = f"# Script qui crée ouverts les composants web fermés (mot-clé « Ouvrir les composants fermés »).\n${{OUVRIR_COMPOSANTS}}    {OPEN_SHADOW_JS}\n"
+
+# Touches du clavier : nom Playwright -> nom Selenium, pour « Press Keys »
+_SELENIUM_KEYS = {"Enter": "ENTER", "Escape": "ESCAPE", "Tab": "TAB", "Backspace": "BACK_SPACE", "Delete": "DELETE",
+                  "Space": "SPACE", "ArrowUp": "ARROW_UP", "ArrowDown": "ARROW_DOWN", "ArrowLeft": "ARROW_LEFT",
+                  "ArrowRight": "ARROW_RIGHT", "Home": "HOME", "End": "END", "PageUp": "PAGE_UP", "PageDown": "PAGE_DOWN",
+                  "Control": "CTRL", "Shift": "SHIFT", "Alt": "ALT", "Meta": "COMMAND"}
+
+
+def selenium_keys(key: str) -> str:
+    """« Control+A » pour Playwright devient « CTRL+a » pour Press Keys de SeleniumLibrary."""
+    return "+".join(_SELENIUM_KEYS.get(part, part.lower() if len(part) == 1 else part) for part in key.split("+"))
+
+
 # Mots-clés qui lisent le texte visible : ils ont besoin de « Texte visible de la page »
 TEXT_BLOCKS = (_SHOWS, _HIDES, _ORDER, _COUNT)
 
@@ -362,6 +408,9 @@ def generate_robot(run: RunResult) -> str:
         lines.append(_keyword("Ouvrir le navigateur", robot_arg(url)))
         if _OPEN not in keywords:
             keywords.insert(0, _OPEN)
+        if run.closed_shadow:  # composants web fermés : ouverts avant d'agir, comme pendant l'exploration
+            lines.append(_keyword("Ouvrir les composants fermés"))
+            need(_CLOSED)
         browser_open = True
 
     def enter(frame: list | None) -> None:
@@ -396,6 +445,8 @@ def generate_robot(run: RunResult) -> str:
             if not browser_open:  # le navigateur doit être ouvert avant toute autre action
                 open_browser(run.case.url)
             _step_lines(action, result, lines, enter, need)
+            if result.opened_tab or action.name == "switch_tab":
+                current = ()  # un autre onglet : on part de sa page, sans cadre sélectionné
         if result.dialog is not None:  # fenêtre JavaScript ouverte par l'action
             answer = dialog_keyword(result.dialog)
             lines.append(_keyword(*answer))
@@ -403,7 +454,8 @@ def generate_robot(run: RunResult) -> str:
                 need(_ALERTS)
 
     body = "\n".join(lines) or _keyword("No Operation")
-    code = _HEADER.format(title=robot_arg(run.case.title), variables=VARIABLES, name=robot_arg(run.case.title), body=body)
+    variables = VARIABLES + (CLOSED_VARIABLE if run.closed_shadow else "")
+    code = _HEADER.format(title=robot_arg(run.case.title), variables=variables, name=robot_arg(run.case.title), body=body)
     if keywords:
         code += "\n*** Keywords ***\n" + "\n".join(keywords)
     return code
@@ -415,7 +467,7 @@ def _step_lines(action, result, lines: list[str], enter, need) -> None:
     element = result.element
     if element is not None:
         enter(element.frame)
-        if element.shadow and action.name in ("click", "fill", "select"):
+        if element.shadow and action.name in ("click", "fill", "select", "hover", "press", "scroll", "upload", "drag"):
             # Selenium n'attend pas un élément désigné en JavaScript (dom:) : on attend qu'il apparaisse
             lines.append(_keyword("Wait Until Page Contains Element", robot_arg(robot_locator(element))))
     if action.name == "cookies":  # bandeau accepté par le programme pendant l'exploration
@@ -423,7 +475,39 @@ def _step_lines(action, result, lines: list[str], enter, need) -> None:
         lines.append(_keyword("Accepter le bandeau de cookies", robot_arg(args["robot"])))
         need(_COOKIES)
     elif action.name == "click":
-        lines.append(_keyword("Click Element", robot_arg(robot_locator(element))))
+        keyword = "Double Click Element" if args.get("double") else \
+            "Open Context Menu" if args.get("button") == "right" else "Click Element"
+        lines.append(_keyword(keyword, robot_arg(robot_locator(element))))
+        if result.opened_tab:  # le lien ouvre un nouvel onglet : le test y passe, comme l'agent
+            lines.append(_keyword("Switch Window", "NEW"))
+    elif action.name == "press":
+        if element is None:
+            enter(None)
+        where = robot_arg(robot_locator(element)) if element is not None else "None"
+        lines.append(_keyword("Press Keys", where, robot_arg(selenium_keys(args["key"]))))
+        if result.opened_tab:
+            lines.append(_keyword("Switch Window", "NEW"))
+    elif action.name == "hover":
+        lines.append(_keyword("Mouse Over", robot_arg(robot_locator(element))))
+    elif action.name == "scroll":
+        if element is not None:
+            lines.append(_keyword("Scroll Element Into View", robot_arg(robot_locator(element))))
+        else:
+            enter(None)
+            script = "window.scrollTo(0, document.body.scrollHeight)" if args["to"] == "bottom" else "window.scrollTo(0, 0)"
+            lines.append(_keyword("Execute Javascript", script))
+    elif action.name == "upload":  # le fichier est copié à côté du test
+        lines.append(_keyword("Choose File", robot_arg(robot_locator(element)), "${CURDIR}${/}" + robot_arg(args["file"])))
+    elif action.name == "drag":
+        source, target = robot_arg(robot_locator(element)), robot_arg(robot_locator(result.target))
+        if element.draggable():  # glisser-déposer HTML5 : par les événements du navigateur
+            lines.append(_keyword("Glisser-déposer", source, target))
+            need(_DRAG)
+        else:
+            lines.append(_keyword("Drag And Drop", source, target))
+    elif action.name == "switch_tab":
+        lines.append(_keyword("@{onglets}=", "Get Window Handles"))
+        lines.append(_keyword("Switch Window", f"${{onglets}}[{args['index'] - 1}]"))
     elif action.name == "fill":
         if element.editable():  # Chrome ne tape dans une zone de texte riche qu'après un vrai clic
             lines.append(_keyword("Click Element", robot_arg(robot_locator(element))))
