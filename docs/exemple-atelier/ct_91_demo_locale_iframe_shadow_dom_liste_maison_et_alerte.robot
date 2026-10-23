@@ -17,6 +17,7 @@ ${OPTIONS_CHROME}    add_experimental_option("prefs", {"credentials_enable_servi
 CT-91 Démo locale : iframe, Shadow DOM, liste maison et alerte
     Ouvrir le navigateur    http://localhost:8000/atelier.html
     Select Frame    css:#editeur
+    Click Element    css:#note
     Input Text    css:#note    Livrer avant midi
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Le texte de l'élément est    css:#note    Livrer avant midi
     Unselect Frame

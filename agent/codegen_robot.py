@@ -28,6 +28,8 @@ d'un composant web se désigne avec un localisateur dom: qui passe par son hôte
 (document.querySelector('hôte').shadowRoot...). Une fenêtre JavaScript ouverte
 par une action reçoit la même réponse que pendant l'exploration, après
 vérification de son message (« Accepter la fenêtre », « Refuser la fenêtre »).
+Avant d'écrire dans une zone de texte riche (contenteditable, comme l'éditeur
+TinyMCE), le test clique dedans : sans ce clic, Chrome 155 n'y tape rien.
 
 Les vérifications sur un élément (valeur d'un champ, option choisie, bouton
 grisé, case cochée) utilisent les mots-clés de SeleniumLibrary, dans
@@ -403,6 +405,8 @@ def _step_lines(action, result, lines: list[str], enter, need) -> None:
     if action.name == "click":
         lines.append(_keyword("Click Element", robot_arg(robot_locator(element))))
     elif action.name == "fill":
+        if element.editable():  # Chrome ne tape dans une zone de texte riche qu'après un vrai clic
+            lines.append(_keyword("Click Element", robot_arg(robot_locator(element))))
         lines.append(_keyword("Input Text", robot_arg(robot_locator(element)), robot_arg(args["text"])))
     elif action.name == "select":
         locator = robot_arg(robot_locator(element))

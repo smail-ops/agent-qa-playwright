@@ -82,6 +82,7 @@ def test_script_pytest(run91, pw_browser):
 def test_test_robot(run91, tmp_path):
     code = generate_robot(run91)
     expected = f"""    Select Frame    css:#editeur
+    Click Element    css:#note
     Input Text    css:#note    Livrer avant midi
     Wait Until Keyword Succeeds    ${{DELAI}}    200ms    Le texte de l'élément est    css:#note    Livrer avant midi
     Unselect Frame
@@ -129,8 +130,8 @@ def test_scenario_gherkin(run91, tmp_path):
     Alors la page affiche "Stock chargé : 12 articles"
 """.format(url=run91.case.url) in feature
     code = generate_bdd_robot(run91)
-    assert ('je saisis "${texte}" dans la zone de texte "Note de commande"\n'
-            "    Select Frame    css:#editeur\n    Input Text    css:#note    ${texte}\n    Unselect Frame\n") in code
+    assert ('je saisis "${texte}" dans la zone de texte "Note de commande"\n    Select Frame    css:#editeur\n'
+            "    Click Element    css:#note\n    Input Text    css:#note    ${texte}\n    Unselect Frame\n") in code
     assert "j'attends jusqu'à ${secondes:\\d+} secondes que la page affiche \"${texte}\"\n" in code
     result = run_robot(code, tmp_path)
     assert result.returncode == 0, result.stdout
