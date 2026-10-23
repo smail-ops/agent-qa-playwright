@@ -177,6 +177,10 @@ main {
   transition: opacity .25s ease;
 }
 .voix.change { opacity: 0; }
+.sources { list-style: none; margin: -4px 0 0; padding: 0; display: grid; gap: 4px; justify-items: center; font-size: 13.5px; }
+.sources a { color: var(--holo); text-decoration: none; border-bottom: 1px solid var(--trait-fort); }
+.sources a:hover, .sources a:focus-visible { border-bottom-color: var(--holo); }
+body.en-mission .sources { justify-items: start; }
 .commandes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center; }
 .bouton-principal {
   border: 0; border-radius: 3px; padding: 12px 24px;
@@ -465,6 +469,7 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
       <div class="parole">
         <p class="vous" id="vous" hidden></p>
         <p class="voix" id="voix" aria-live="polite"></p>
+        <ul class="sources" id="sources" aria-label="Sources dans la documentation officielle" hidden></ul>
         <div class="presentation" id="presentation" hidden>
           <label for="presentation-nom">Votre prénom</label>
           <div class="presentation-ligne">
@@ -1323,9 +1328,26 @@ URL : https://www.saucedemo.com/
     return annoncer("Je n'ai pas compris. Dites par exemple : lance la démo, ou lance le cas 1.", { important: true });
   }
 
+  // Les liens de la documentation officielle cités par Alfred : ils viennent du programme, jamais du modèle.
+  function afficherSources(sources) {
+    const liste = $("sources");
+    liste.replaceChildren(...(sources || []).filter((source) => /^https:\/\//.test(source.url || "")).map((source) => {
+      const lien = document.createElement("a");
+      lien.href = source.url;
+      lien.target = "_blank";
+      lien.rel = "noopener";
+      lien.textContent = source.titre;
+      const ligne = document.createElement("li");
+      ligne.append(lien);
+      return ligne;
+    }));
+    liste.hidden = !liste.children.length;
+  }
+
   // --- Conversation libre : la phrase part au modèle avec le contexte, la réponse revient avec une action contrôlée --
   async function converser(texte) {
     if (etat.conversant) return annoncer("Un instant, je vous réponds.", { important: true });
+    afficherSources([]);
     const enMission = Boolean(etat.mission && !etat.mission.fini);
     const avant = document.body.dataset.etat;
     etat.conversant = true;
@@ -1340,6 +1362,7 @@ URL : https://www.saucedemo.com/
       if (!enMission && document.body.dataset.etat === "think") changerEtat(avant);
       // Pour un lancement, Alfred annonce déjà le départ de la mission : la réponse s'affiche sans être lue deux fois
       annoncer(r.reponse, { important: true, interrompre: true, parler: r.action.type !== "lancer" });
+      afficherSources(r.sources);
       executerAction(r.action);
     } catch (erreur) {
       if (!enMission && document.body.dataset.etat === "think") changerEtat(avant);
