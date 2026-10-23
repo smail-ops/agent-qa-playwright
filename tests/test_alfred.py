@@ -692,6 +692,61 @@ def test_conversation_sans_cle(alfred, monkeypatch):
     assert request(alfred, "POST", "/api/conversation", {"texte": "  "})[0] == 400
 
 
+def test_question_sur_un_outil_sans_cle(alfred, monkeypatch):
+    """Sans clé, une question sur un outil reçoit au moins les pages officielles qui en parlent."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    status, data = request(alfred, "POST", "/api/conversation", {"texte": "comment on gère une iframe avec Robot Framework ?"})
+    assert status == 200 and "clé Gemini ou Claude" in data["reponse"] and data["action"] == {"type": "aucune"}
+    assert data["sources"] == [{"titre": "Robot Framework : SeleniumLibrary : les mots-clés",
+                                "url": "https://robotframework.org/SeleniumLibrary/SeleniumLibrary.html"}]
+
+
+def test_question_sur_un_outil_avec_la_documentation(alfred, monkeypatch):
+    """Avec une clé : une seule requête, des extraits de la page officielle, et le lien de l'extrait cité."""
+    from agent import documentation
+    from test_documentation import LIBDOC
+
+    monkeypatch.setattr(documentation, "fetch", lambda url, timeout=None: LIBDOC)
+    monkeypatch.setenv("GEMINI_API_KEY", "cle-de-test")
+    sent = {}
+    faux = FauxGemini([{"raw": '{"reponse": "Avec le mot-clé Select Frame, Monsieur.", "sources": [1]}'}])
+    original = faux.complete
+    monkeypatch.setattr(faux, "complete", lambda system, user, images=(), max_tokens=None: sent.update(user=user) or original(system, user))
+    monkeypatch.setattr(alfred_server, "make_provider", lambda name: faux)
+    status, data = request(alfred, "POST", "/api/conversation", {"texte": "comment on gère une iframe avec Robot Framework ?",
+                                                                  "provider": "gemini", "historique": []})
+    assert status == 200, data
+    assert data == {"reponse": "Avec le mot-clé Select Frame, Monsieur.", "action": {"type": "aucune"},
+                    "sources": [{"titre": "Robot Framework : SeleniumLibrary : les mots-clés, Select Frame",
+                                 "url": "https://robotframework.org/SeleniumLibrary/SeleniumLibrary.html#Select%20Frame"}]}
+    assert "[1] Robot Framework : SeleniumLibrary : les mots-clés, Select Frame" in sent["user"]
+    assert "CT-01" not in sent["user"]  # la liste des cas ne part pas avec une question sur un outil
+
+
+def test_interface_sources_de_la_documentation(alfred, pw_page, monkeypatch):
+    """Les liens de la documentation officielle s'affichent sous la réponse, et s'effacent à la phrase suivante."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    errors = []
+    pw_page.on("pageerror", lambda exc: errors.append(str(exc)))
+    pw_page.goto(alfred.url)
+    expect(pw_page.locator(".carte-cas")).to_have_count(3)
+    pw_page.fill("#dialogue-texte", "Alfred, comment on gère une iframe avec Robot Framework ?")
+    pw_page.press("#dialogue-texte", "Enter")
+    expect(pw_page.locator("#voix")).to_contain_text("Voici déjà les pages de la documentation officielle")
+    lien = pw_page.locator("#sources a")
+    expect(lien).to_have_text(["Robot Framework : SeleniumLibrary : les mots-clés"])
+    expect(lien).to_have_attribute("href", "https://robotframework.org/SeleniumLibrary/SeleniumLibrary.html")
+    expect(lien).to_have_attribute("target", "_blank")
+
+    pw_page.fill("#dialogue-texte", "quels tests ont échoué aujourd'hui ?")
+    pw_page.press("#dialogue-texte", "Enter")
+    expect(pw_page.locator("#voix")).to_contain_text("clé Gemini ou Claude")
+    expect(pw_page.locator("#sources")).to_be_hidden()
+    assert errors == []
+
+
 def test_interface_conversation_et_cas_dicte(alfred, pw_page, monkeypatch, demo_url):
     """Un cas dicté à Alfred s'affiche, puis « vas-y » le lance."""
     monkeypatch.setenv("GEMINI_API_KEY", "cle-de-test")

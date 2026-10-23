@@ -23,6 +23,7 @@ import platform
 import re
 from typing import TYPE_CHECKING
 
+from . import documentation
 from .actions import _extract_json
 from .masquage import mask
 from .prompts import describe_step
@@ -48,6 +49,7 @@ DIAGNOSIS_PROMPT = """Tu es un testeur logiciel expérimenté. Un test automatis
 - titre : titre de la fiche d'anomalie, une phrase courte et factuelle, comme dans Jira.
 - explication : deux ou trois phrases qui relient les faits observés à ta conclusion.
 - suggestion : la prochaine action conseillée au testeur, en une phrase.
+- sources (facultatif) : si des extraits numérotés de la documentation officielle sont fournis et t'ont servi, leurs numéros, par exemple [1, 2].
 N'invente aucun fait. Écris en français."""
 
 
@@ -144,7 +146,20 @@ def _system() -> str:
     return f"{platform.system()} {platform.release()}".strip()
 
 
-def build_diagnosis_request(run: RunResult) -> str:
+def technical_error(run: RunResult) -> str | None:
+    """Le message de la dernière erreur technique de Playwright pendant le test (délai dépassé, élément masqué...)."""
+    errors = [step.result.detail for step in run.steps if not step.result.ok and "Erreur Playwright" in step.result.detail]
+    return errors[-1] if errors else None
+
+
+def read_documentation(run: RunResult) -> documentation.Lecture | None:
+    """Pour une erreur technique, les extraits de la documentation officielle de Playwright qui en parlent."""
+    error = technical_error(run)
+    pages = documentation.error_pages(error) if error else []
+    return documentation.read(error, pages) if pages else None
+
+
+def build_diagnosis_request(run: RunResult, lecture: documentation.Lecture | None = None) -> str:
     """Les faits envoyés au modèle. Comme pendant le test, les données personnelles de la page sont masquées."""
     history = "\n".join(describe_step(step) for step in run.steps)
     failed = [step.result.detail for step in run.steps if step.result.check is False]
@@ -155,7 +170,11 @@ def build_diagnosis_request(run: RunResult) -> str:
         f"## Vérifications en échec\n" + ("\n".join(f"- {d}" for d in failed) or "(aucune)") + "\n\n"
         f"## Page à la fin du test\n{page}\n\n"
     )
-    return f"## Cas de test\n{run.case.text}\n\n{mask(facts, run.case.text)}Rédige le diagnostic en JSON."
+    docs = ""
+    if lecture is not None and lecture.extraits:
+        docs = ("## Documentation officielle de Playwright (extraits numérotés)\n\n"
+                + "\n\n".join(extrait.to_prompt() for extrait in lecture.extraits) + "\n\n")
+    return f"## Cas de test\n{run.case.text}\n\n{mask(facts, run.case.text)}{docs}Rédige le diagnostic en JSON."
 
 
 def parse_diagnosis(raw: str) -> dict:
@@ -179,7 +198,9 @@ def parse_diagnosis(raw: str) -> dict:
         if not value:
             raise ValueError(f"champ « {name} » vide")
         fields[name] = value if len(value) <= MAX_FIELD else value[: MAX_FIELD - 1] + "…"
-    return {"nature": nature, "gravite": gravite, **fields}
+    numbers = data.get("sources")
+    cited = [n for n in numbers if isinstance(n, int) and not isinstance(n, bool)] if isinstance(numbers, list) else []
+    return {"nature": nature, "gravite": gravite, **fields, "sources": cited}
 
 
 def _failure_capture(run: RunResult) -> list[tuple[str, bytes]]:
@@ -197,10 +218,14 @@ def diagnose(run: RunResult, provider: Provider) -> tuple[dict | None, str]:
     """Demande le diagnostic au modèle. Renvoie (diagnostic, raison s'il manque)."""
     if provider.name == "scripted":
         return None, "démo sans IA : pas de diagnostic du modèle"
+    lecture = read_documentation(run)  # erreur technique : la documentation officielle, lue par le programme
     try:
-        raw = provider.complete(DIAGNOSIS_PROMPT, build_diagnosis_request(run), _failure_capture(run), 4000)
+        raw = provider.complete(DIAGNOSIS_PROMPT, build_diagnosis_request(run, lecture), _failure_capture(run), 4000)
         run.model_calls += 1
-        return parse_diagnosis(raw), ""
+        diagnosis = parse_diagnosis(raw)
+        # Les liens viennent des extraits fournis par le programme : le modèle ne peut citer que ceux-là
+        diagnosis["sources"] = documentation.cited(lecture, diagnosis["sources"]) if lecture is not None else []
+        return diagnosis, ""
     except ProviderError as exc:  # quota, réseau : la fiche reste utile sans le diagnostic
         return None, f"le modèle n'a pas pu répondre ({str(exc)[:200]})"
     except ValueError as exc:
@@ -268,8 +293,11 @@ def build_anomaly(run: RunResult, diagnosis: dict | None, missing: str = "") -> 
             "",
             f"**Suggestion :** {diagnosis['suggestion']}",
             "",
-            "_Diagnostic proposé par le modèle à partir des faits ci-dessus : à confirmer par un testeur._",
         ]
+        if diagnosis.get("sources"):
+            lines += ["**Dans la documentation officielle :**", ""]
+            lines += [f"- [{source['titre']}]({source['url']})" for source in diagnosis["sources"]] + [""]
+        lines.append("_Diagnostic proposé par le modèle à partir des faits ci-dessus : à confirmer par un testeur._")
     else:
         lines.append(f"Pas de diagnostic : {missing or 'non demandé'}.")
 
