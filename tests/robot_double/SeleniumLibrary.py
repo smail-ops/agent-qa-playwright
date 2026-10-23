@@ -183,6 +183,10 @@ class SeleniumLibrary:
     def input_text(self, locator: str, text: str, clear: bool = True):
         self._find(locator).fill(text)
 
+    def input_password(self, locator: str, password: str, clear: bool = True):
+        logger.info("Saisie d'un mot de passe (non journalisé, comme SeleniumLibrary).")
+        self._find(locator).fill(password)
+
     def click_element(self, locator: str):
         self._find(locator).click()
 

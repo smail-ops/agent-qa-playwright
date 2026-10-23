@@ -30,9 +30,10 @@ import re
 from typing import TYPE_CHECKING
 
 from .actions import STATE_LABELS, au, jusqua, key_label
-from .codegen_robot import (_ALERTS, _CLOSED, _COOKIES, _COUNT, _DRAG, _HIDES, _OPEN, _ORDER, _SHOWS, _VISIBLE, CLOSED_VARIABLE,
-                            TEXT_BLOCKS, VARIABLES, _state_keyword, frame_locator, robot_arg, robot_locator, selenium_keys,
-                            value_keyword)
+from .codegen_robot import (_ALERTS, _CLOSED, _COOKIES, _COUNT, _DRAG, _HIDES, _OPEN, _ORDER, _SECRETS, _SHOWS, _VISIBLE,
+                            CLOSED_VARIABLE, SECRETS_SETUP, TEXT_BLOCKS, VARIABLES, _state_keyword, frame_locator, robot_arg,
+                            robot_locator, secret_cell, selenium_keys, typing_keyword, value_keyword)
+from .coffre import env_names, split
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -50,7 +51,7 @@ Documentation     Scénario Gherkin généré automatiquement par agent-qa-playw
 ...               Même scénario que {feature} : Robot Framework comprend
 ...               Étant donné que, Quand, Alors et Et. Chaque phrase est un mot-clé, plus bas.
 Library           SeleniumLibrary    timeout=${{DELAI}}    implicit_wait=${{DELAI}}
-Test Teardown     Close Browser
+{setup}Test Teardown     Close Browser
 
 {variables}
 *** Test Cases ***
@@ -184,7 +185,9 @@ class _Frames:
 class _Scenario:
     """Phrases du scénario, et mots-clés Robot qui les rejouent."""
 
-    def __init__(self) -> None:
+    def __init__(self, names: dict | None = None) -> None:
+        self.names = names or {}  # repère du mot de passe -> variable du fichier .env
+        self.secrets = False  # le scénario saisit un mot de passe, lu dans le fichier .env
         self.sentences: list[tuple[str, str]] = []  # (Étant donné que | Quand | Alors | Et, phrase)
         self.keywords: dict[str, list[str]] = {}  # nom du mot-clé -> lignes
         self.blocks: list[str] = []  # mots-clés de vérification de codegen_robot
@@ -215,7 +218,7 @@ class _Scenario:
 
 
 def _build(run: RunResult) -> _Scenario:
-    scenario, names, frames = _Scenario(), _Names(), _Frames()
+    scenario, names, frames = _Scenario(env_names(run)), _Names(), _Frames()
     opened = False
     for step in run.steps:
         action, result = step.action, step.result
@@ -237,6 +240,8 @@ def _build(run: RunResult) -> _Scenario:
             _dialog_step(scenario, result.dialog)
         if result.opened_tab:  # l'étape a ouvert un nouvel onglet : le scénario y passe, comme l'agent
             scenario.common("new_tab", "action", "je passe sur le nouvel onglet")
+    if scenario.secrets:  # mots de passe : lus dans le fichier .env avant le scénario
+        scenario.blocks.append(_SECRETS)
     opening = 'je suis sur la page "${url}"'
     if run.closed_shadow and opening in scenario.keywords:  # composants web fermés : ouverts avant d'agir
         scenario.keywords[opening] = scenario.keywords[opening] + ["Ouvrir les composants fermés"]
@@ -360,11 +365,22 @@ def _element_step(scenario: _Scenario, names: _Names, action, result) -> None:
             define(sentence, [f"Drag And Drop    {locator}    {target}"])
         scenario.add("action", sentence)
     elif action.name == "fill":
-        typing = [f"Input Text    {locator}    ${{texte}}"]
-        if element.editable():  # Chrome ne tape dans une zone de texte riche qu'après un vrai clic
-            typing.insert(0, f"Click Element    {locator}")
-        define(f'je saisis "${{texte}}" dans {name}', typing)
-        scenario.add("action", f"je saisis {_quote(args['text'])} dans {name}")
+        click = [f"Click Element    {locator}"] if element.editable() else []  # Chrome : un vrai clic avant d'écrire
+        parts = split(args["text"], scenario.names)
+        if len(parts) == 1 and parts[0][0]:  # un mot de passe : la phrase cite sa variable, jamais sa valeur
+            scenario.secrets = True
+            # %{${variable}} : la variable d'environnement, lue sans passer par une variable Robot (jamais journalisée)
+            define(f'je saisis le mot de passe "${{variable}}" dans {name}',
+                   click + [f"Input Password    {locator}    %{{${{variable}}}}"])
+            scenario.add("action", f'je saisis le mot de passe "{parts[0][1]}" dans {name}')
+        elif any(is_secret for is_secret, _ in parts):  # un mot de passe dans un texte : mot-clé sans argument
+            scenario.secrets = True
+            sentence = f"je saisis {_quote(args['text'])} dans {name}"
+            define(sentence, click + [f"Input Password    {locator}    {secret_cell(args['text'], scenario.names)}"])
+            scenario.add("action", sentence)
+        else:
+            define(f'je saisis "${{texte}}" dans {name}', click + [f"{typing_keyword(element)}    {locator}    ${{texte}}"])
+            scenario.add("action", f"je saisis {_quote(args['text'])} dans {name}")
     elif action.name == "select":
         # Libellé (« Prix croissant ») ou valeur (« price ») : les deux sont acceptés, comme pour l'agent
         define(f'je choisis "${{option}}" dans {name}', [
@@ -423,6 +439,7 @@ def generate_bdd_robot(run: RunResult) -> str:
         title=_cell(_clean(run.case.title)),
         feature=feature_filename(run),
         variables=VARIABLES + (CLOSED_VARIABLE if run.closed_shadow else ""),
+        setup=SECRETS_SETUP if scenario.secrets else "",
         name=_cell(_clean(run.case.title)),
         body="\n".join(body) or f"{SEP}No Operation",
     )

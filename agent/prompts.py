@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .coffre import Coffre
 from .masquage import mask
 
 if TYPE_CHECKING:
@@ -53,9 +54,10 @@ Règles :
 8. Une liste déroulante « maison », faite de div et non d'un élément select, se manipule avec click : clique sur la liste pour l'ouvrir, puis sur l'option au tour suivant.
 9. Une fenêtre JavaScript (alerte, confirmation) reçoit OK par défaut, et son message apparaît dans le résultat de l'action qui l'a ouverte. Pour répondre Annuler, ou remplir une fenêtre de saisie, utilise dialog juste avant cette action.
 10. Pour un résultat qui met du temps à s'afficher (chargement de plusieurs secondes), utilise wait avec le texte attendu, puis vérifie-le.
-11. Les données personnelles de la page (e-mail, téléphone, carte, IBAN) peuvent être remplacées par un repère comme « [e-mail masqué] » : ne saisis et ne vérifie jamais ce repère.
-12. Un clic qui ouvre un nouvel onglet t'y fait passer : la page décrite est alors celle du nouvel onglet, et la liste des onglets ouverts est indiquée. Pour revenir au premier, utilise switch_tab.
-13. Un bandeau de cookies est accepté par le programme avant ton tour (étape « cookies » de l'historique) : une étape qui demande de l'accepter est alors faite. S'il couvre encore la page, accepte-le toi-même.
+11. Les données personnelles de la page (e-mail, téléphone, carte, IBAN, nom, adresse) peuvent être remplacées par un repère comme « [e-mail masqué] » : ne saisis et ne vérifie jamais ce repère.
+12. Un mot de passe du cas de test est remplacé par un repère : « [mot de passe] » (ou « [mot de passe 1] », « [mot de passe 2] »). Saisis ce repère tel quel avec fill : le programme tape le vrai mot de passe à sa place.
+13. Un clic qui ouvre un nouvel onglet t'y fait passer : la page décrite est alors celle du nouvel onglet, et la liste des onglets ouverts est indiquée. Pour revenir au premier, utilise switch_tab.
+14. Un bandeau de cookies est accepté par le programme avant ton tour (étape « cookies » de l'historique) : une étape qui demande de l'accepter est alors faite. S'il couvre encore la page, accepte-le toi-même.
 """
 
 # Ajouté aux consignes quand la vision est activée : le modèle reçoit aussi la capture d'écran.
@@ -117,13 +119,14 @@ def describe_step(step: Step) -> str:
 def build_user_message(case: TestCase, steps: list[Step], observation: Observation) -> str:
     """Message complet d'un tour : cas de test, historique et état de la page.
 
-    Les données personnelles de la page (e-mail, téléphone, carte, IBAN) sont masquées,
-    sauf celles que le cas de test donne lui-même : voir masquage.py.
+    Les données personnelles de la page (e-mail, téléphone, carte, IBAN, noms et adresses) sont
+    masquées, sauf celles que le cas de test donne lui-même : voir masquage.py. Les mots de passe du
+    cas de test sont remplacés par un repère, « [mot de passe] » : voir coffre.py.
     """
     history = "\n".join(describe_step(s) for s in steps) or "(aucune)"
     return (
         "## Cas de test\n"
-        f"{case.text}\n\n"
+        f"{Coffre.from_case(case.text).hide(case.text)}\n\n"
         "## Actions déjà réalisées\n"
         f"{mask(history, case.text)}\n\n"
         "## État actuel de la page\n"

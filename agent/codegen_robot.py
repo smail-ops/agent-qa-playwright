@@ -51,6 +51,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .browser import OPEN_SHADOW_JS
+from .coffre import env_names, split
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -83,7 +84,7 @@ Documentation     Test généré automatiquement par agent-qa-playwright.
 ...               Rejoue les actions réussies de l'agent avec Selenium, sans IA.
 # implicit_wait : avant d'agir, Selenium attend que l'élément apparaisse, comme Playwright.
 Library           SeleniumLibrary    timeout=${{DELAI}}    implicit_wait=${{DELAI}}
-Test Teardown     Close Browser
+{setup}Test Teardown     Close Browser
 
 {variables}
 *** Test Cases ***
@@ -91,11 +92,32 @@ Test Teardown     Close Browser
 {body}
 """
 
+# Mots de passe : lus dans le fichier .env du projet avant le test, jamais écrits dans le fichier
+SECRETS_SETUP = "Suite Setup       Charger les mots de passe\n"
+_SECRETS = """Charger les mots de passe
+    [Documentation]    Lit le fichier .env du projet : l'agent y a rangé les mots de passe de test (%{MOT_DE_PASSE_...}),
+    ...    qui ne sont jamais écrits dans ce fichier.
+    Evaluate    dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))    modules=dotenv
+"""
+
+
+def secret_cell(text: str, names: dict[str, str]) -> str:
+    """Une valeur pour Robot Framework : un mot de passe devient %{MOT_DE_PASSE_...}, lu dans le fichier .env."""
+    cell = "".join("%{" + value + "}" if is_secret else robot_arg(value) for is_secret, value in split(text, names) if value)
+    return cell or "${EMPTY}"
+
+
+def typing_keyword(element, secret: bool = False) -> str:
+    """Input Password pour un mot de passe (SeleniumLibrary ne l'écrit pas dans son journal), sinon Input Text."""
+    password = element.tag == "input" and (element.type or "").lower() == "password"
+    return "Input Password" if password or secret else "Input Text"
+
+
 _OPEN = f"""Ouvrir le navigateur
     [Documentation]    Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.
     ...    Avec Chrome, le gestionnaire de mots de passe est coupé (variable OPTIONS_CHROME) : après une connexion
-    ...    avec un mot de passe connu des fuites de données, comme secret_sauce, Chrome afficherait une alerte
-    ...    « mot de passe compromis » qui interrompt le test.
+    ...    avec un mot de passe connu des fuites de données, comme celui du site d'entraînement SauceDemo, Chrome
+    ...    afficherait une alerte « mot de passe compromis » qui interrompt le test.
     [Arguments]    ${{url}}
     ${{chrome}}=    Evaluate    $BROWSER.lower().replace(" ", "") in {CHROME_NAMES!r}
     IF    ${{chrome}}
@@ -430,6 +452,7 @@ def generate_robot(run: RunResult) -> str:
         if block in TEXT_BLOCKS and _VISIBLE not in keywords:
             keywords.append(_VISIBLE)
 
+    names = env_names(run)  # repère du mot de passe -> variable du fichier .env
     for step in run.steps:
         action, result = step.action, step.result
         if action is None or not result.ok:
@@ -444,7 +467,7 @@ def generate_robot(run: RunResult) -> str:
         else:
             if not browser_open:  # le navigateur doit être ouvert avant toute autre action
                 open_browser(run.case.url)
-            _step_lines(action, result, lines, enter, need)
+            _step_lines(action, result, lines, enter, need, names)
             if result.opened_tab or action.name == "switch_tab":
                 current = ()  # un autre onglet : on part de sa page, sans cadre sélectionné
         if result.dialog is not None:  # fenêtre JavaScript ouverte par l'action
@@ -455,13 +478,18 @@ def generate_robot(run: RunResult) -> str:
 
     body = "\n".join(lines) or _keyword("No Operation")
     variables = VARIABLES + (CLOSED_VARIABLE if run.closed_shadow else "")
-    code = _HEADER.format(title=robot_arg(run.case.title), variables=variables, name=robot_arg(run.case.title), body=body)
+    setup = ""
+    if "%{" in body:  # des mots de passe, lus dans le fichier .env avant le test
+        setup = SECRETS_SETUP
+        keywords.append(_SECRETS)
+    code = _HEADER.format(title=robot_arg(run.case.title), setup=setup, variables=variables, name=robot_arg(run.case.title),
+                          body=body)
     if keywords:
         code += "\n*** Keywords ***\n" + "\n".join(keywords)
     return code
 
 
-def _step_lines(action, result, lines: list[str], enter, need) -> None:
+def _step_lines(action, result, lines: list[str], enter, need, names: dict | None = None) -> None:
     """Lignes du test pour une action réussie (autre que l'ouverture d'une page)."""
     args = action.args
     element = result.element
@@ -511,7 +539,8 @@ def _step_lines(action, result, lines: list[str], enter, need) -> None:
     elif action.name == "fill":
         if element.editable():  # Chrome ne tape dans une zone de texte riche qu'après un vrai clic
             lines.append(_keyword("Click Element", robot_arg(robot_locator(element))))
-        lines.append(_keyword("Input Text", robot_arg(robot_locator(element)), robot_arg(args["text"])))
+        cell = secret_cell(args["text"], names or {})
+        lines.append(_keyword(typing_keyword(element, "%{" in cell), robot_arg(robot_locator(element)), cell))
     elif action.name == "select":
         locator = robot_arg(robot_locator(element))
         if result.value is not None:
@@ -554,7 +583,7 @@ def _step_lines(action, result, lines: list[str], enter, need) -> None:
             value = result.value if element.reads_text() and result.check and result.value is not None and not regex \
                 else args["value"]
             keyword, block = value_keyword(element, regex)
-            checking = (keyword, robot_arg(robot_locator(element)), robot_arg(value))
+            checking = (keyword, robot_arg(robot_locator(element)), secret_cell(value, names or {}))
             need(block)
         else:
             keyword, *extra = _state_keyword(element, args["state"])

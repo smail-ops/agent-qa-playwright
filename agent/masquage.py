@@ -13,7 +13,15 @@ Pour éviter de masquer n'importe quel nombre, un numéro de carte doit passer
 le contrôle de Luhn et un IBAN celui de sa clé (modulo 97), comme dans les
 logiciels bancaires.
 
-Limite : avec la vision, la capture d'écran envoyée au modèle n'est pas masquée.
+Les noms et les adresses postales n'ont pas de format fixe. Trois indices, sans
+outil de reconnaissance de texte :
+- la structure de la page : la valeur d'un champ Nom, Prénom, Adresse, Code
+  postal, Ville (reconnu par son libellé, son nom ou son attribut autocomplete) ;
+- le format : une adresse comme « 12 rue de la Paix, 75002 Paris » ;
+- le contexte : le nom qui suit « Bonjour », « Welcome » ou « Logged in as ».
+
+Limites : un nom au milieu d'une phrase (« commande de Jean Dupont expédiée »)
+passe ; avec la vision, la capture d'écran envoyée au modèle n'est pas masquée.
 """
 
 from __future__ import annotations
@@ -29,6 +37,28 @@ _IMAGE = re.compile(r"\.(?:png|jpe?g|gif|svg|webp|avif)$", re.IGNORECASE)
 # Numéro français (06 12 34 56 78, +33 6 12 34 56 78), ou international (+44 20 7946 0958)
 _PHONE = re.compile(r"(?<![\d+])(?:(?:\+33[ .-]?(?:\(0\)[ .-]?)?|0)[1-9](?:[ .-]?\d{2}){4}"
                     r"|\+\d{1,3}(?:[ .-]?\(?\d{1,4}\)?){2,5})(?![\d])")
+
+
+# Le nom qui suit une salutation : « Bonjour Jean », « Logged in as Alfred Campagne »
+_UPPER = "A-ZÀ-ÖØ-Þ"
+_WORD = f"[{_UPPER}][A-Za-zÀ-ÖØ-öø-ÿ'’-]+"
+_GREETING = re.compile(rf"\b(?:Bonjour|Bonsoir|Bienvenue|Salut|Hello|Hi|Welcome|Logged in as|Signed in as|"
+                       rf"Connecté en tant que|Connectée en tant que)\b[ ,:]*({_WORD}(?:[ -]{_WORD}){{0,2}})")
+# Une adresse postale : numéro et type de voie, puis éventuellement code postal et ville
+_LINK = r"(?:(?:de|du|des|la|le|l['’]|d['’])\s*)*"
+_STREET_FR = (rf"\b\d{{1,4}}(?:\s?(?:bis|ter))?,?\s+(?i:rue|avenue|av\.|boulevard|bd|chemin|impasse|allée|allee|place|"
+              rf"route|quai|cours|square|passage|voie|résidence|residence|lotissement|hameau)\s+{_LINK}{_WORD}"
+              rf"(?:\s+{_LINK}{_WORD}){{0,4}}")
+_STREET_EN = (r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Way|"
+              r"Court|Ct|Place|Pl)\b\.?")
+_ADDRESS = re.compile(rf"(?:{_STREET_FR}|{_STREET_EN})(?:,?\s+\d{{5}}\s+{_WORD}(?:[\s-]{_WORD})*)?")
+NAME_TOKEN, ADDRESS_TOKEN, FIELD_TOKEN = "[nom masqué]", "[adresse masquée]", "[donnée personnelle masquée]"
+
+# Une ligne d'élément envoyée au modèle, pour un champ de nom ou d'adresse : sa valeur est masquée
+_FIELD_HINT = re.compile(r'autocomplete="[^"]+"|(?:name|id|label|placeholder|aria-label|data-test)="[^"]*(?<![a-z])'
+                         r"(?:prénom|prenom|nom|first.?name|last.?name|full.?name|surname|adresse|address|rue|street|"
+                         r'ville|city|code postal|postal|zip)(?![a-z])[^"]*"', re.IGNORECASE)
+_FIELD_VALUE = re.compile(r'valeur="([^"]*)"')
 
 
 def _digits(value: str) -> str:
@@ -74,24 +104,46 @@ _KINDS: tuple[tuple[re.Pattern, Callable[[str], bool], Callable[[str], str], str
 def _found(text: str) -> list[tuple[int, int, str, str]]:
     """Les données personnelles du texte : (début, fin, forme comparable, repère), sans chevauchement."""
     spans: list[tuple[int, int, str, str]] = []
+
+    def add(start: int, end: int, key: str, token: str) -> None:
+        if not any(start < other_end and other_start < end for other_start, other_end, _, _ in spans):
+            spans.append((start, end, key, token))
+
     for pattern, valid, normal, token in _KINDS:
         for match in pattern.finditer(text):
-            start, end = match.span()
-            if any(start < other_end and other_start < end for other_start, other_end, _, _ in spans):
-                continue
             if valid(match.group()):
-                spans.append((start, end, f"{token}{normal(match.group())}", token))
+                add(*match.span(), f"{token}{normal(match.group())}", token)
+    for match in _ADDRESS.finditer(text):
+        add(*match.span(), f"{ADDRESS_TOKEN}{match.group().lower()}", ADDRESS_TOKEN)
+    for match in _GREETING.finditer(text):
+        add(*match.span(1), f"{NAME_TOKEN}{match.group(1).lower()}", NAME_TOKEN)
     return sorted(spans)
+
+
+def _mask_fields(text: str, known: str) -> str:
+    """Dans la liste des éléments, la valeur d'un champ de nom ou d'adresse, sauf si le cas de test la donne."""
+    lines = []
+    for line in text.splitlines(keepends=True):
+        attributes = line.split('valeur="')[0]
+        if line.startswith("[") and 'valeur="' in line and _FIELD_HINT.search(attributes):
+            line = _FIELD_VALUE.sub(lambda match: match.group(0) if not match.group(1) or match.group(1).lower() in known
+                                    else f'valeur="{FIELD_TOKEN}"', line)
+        lines.append(line)
+    return "".join(lines)
 
 
 def mask(text: str, known: str = "") -> str:
     """Remplace les données personnelles du texte par un repère, sauf celles qui figurent dans « known »."""
     if not text:
         return text
+    lowered = known.lower()
+    text = _mask_fields(text, lowered)
     allowed = {key for _, _, key, _ in _found(known)} if known else set()
     parts, last = [], 0
     for start, end, key, token in _found(text):
         if key in allowed:
+            continue
+        if token in (NAME_TOKEN, ADDRESS_TOKEN) and text[start:end].lower() in lowered:  # donné par le cas de test
             continue
         parts += [text[last:start], token]
         last = end

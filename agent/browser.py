@@ -201,6 +201,7 @@ _OBSERVE_JS = r"""
       editable: editable || null,
       field: field || null,
       draggable: el.getAttribute('draggable') === 'true' || null,
+      autocomplete: el.getAttribute('autocomplete'),
     };
 
     // Sélecteur lisible, du plus robuste au moins robuste
@@ -357,6 +358,11 @@ _FRAME_JS = r"""
 _ATTR_LABELS = (("test_id", "data-test"), ("id", "id"), ("name", "name"), ("placeholder", "placeholder"), ("aria", "aria-label"),
                 ("label", "label"), ("title", "title"))
 
+# Valeurs d'autocomplete d'un champ de nom ou d'adresse : signalées au modèle, et leur contenu est masqué
+PERSONAL_AUTOCOMPLETE = ("name", "given-name", "family-name", "additional-name", "honorific-prefix", "honorific-suffix",
+                         "nickname", "street-address", "address-line1", "address-line2", "address-line3", "address-level1",
+                         "address-level2", "address-level3", "address-level4", "postal-code")
+
 # Balises sans rôle propre : une div cliquable n'est ni un bouton ni un lien, c'est « l'élément »
 _GENERIC_TAGS = ("div", "span", "li", "td", "p", "img", "svg", "i", "label", "ul", "tr", "section", "article")
 
@@ -446,6 +452,8 @@ class Element:
         for key, label in _ATTR_LABELS:
             if attrs.get(key):
                 parts.append(f'{label}="{attrs[key]}"')
+        if (attrs.get("autocomplete") or "").lower() in PERSONAL_AUTOCOMPLETE:  # un nom, une adresse : voir masquage.py
+            parts.append(f'autocomplete="{attrs["autocomplete"]}"')
         if attrs.get("value") is not None:
             parts.append(f'valeur="{attrs["value"]}"')
         if self.text:
