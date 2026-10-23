@@ -53,12 +53,43 @@ _STATE_ASSERTIONS = {
 }
 
 
+def _nth(nth: int | None) -> str:
+    return "" if nth is None else f".nth({nth})"
+
+
+def scope_code(frame: list | None) -> str:
+    """Code Playwright qui entre dans les cadres (iframes) de l'élément : page.frame_locator('#editeur')."""
+    return "page" + "".join(f".frame_locator({hop['css']!r}){_nth(hop['nth'])}" for hop in frame or [])
+
+
 def locator_code(element: Element) -> str:
-    """Code Playwright qui retrouve l'élément avec un sélecteur lisible."""
-    code = f"page.locator({element.selector!r})"
-    if element.nth is not None:
-        code += f".nth({element.nth})"
-    return code
+    """Code Playwright qui retrouve l'élément avec un sélecteur lisible.
+
+    Dans un composant web, on passe par son hôte : page.locator('generateur-code').locator('#generer').
+    Playwright entre seul dans le Shadow DOM.
+    """
+    code = scope_code(element.frame)
+    code += "".join(f".locator({hop['css']!r}){_nth(hop['nth'])}" for hop in element.shadow or [])
+    return code + f".locator({element.selector!r}){_nth(element.nth)}"
+
+
+def _text_code(text: str, frame: list | None, in_shadow: bool, timeout: str = "") -> str:
+    """Le texte est affiché : dans la page, dans un cadre, ou dans un composant web (Shadow DOM)."""
+    if in_shadow:  # innerText ne contient pas le texte des composants : on cherche l'élément qui l'affiche
+        return f"expect(page.get_by_text(re.compile(re.escape({text!r}), re.IGNORECASE)).first).to_be_visible({timeout.lstrip(', ')})"
+    return f"expect({scope_code(frame)}.locator('body')).to_contain_text({text!r}, ignore_case=True, use_inner_text=True{timeout})"
+
+
+def _dialog_code(dialog: dict) -> list[str]:
+    """La réponse de l'agent à une fenêtre JavaScript, préparée avant l'action qui l'ouvre."""
+    if not dialog["accepted"]:
+        answer, said = "dialog.dismiss()", "Annuler"
+    elif dialog.get("text") is not None:
+        answer, said = f"dialog.accept({dialog['text']!r})", f"OK, avec la saisie « {dialog['text']} »"
+    else:
+        answer, said = "dialog.accept()", "OK"
+    message = " ".join(str(dialog["message"]).split())
+    return [f"# Fenêtre « {message} » : réponse {said}", f"page.once('dialog', lambda dialog: {answer})"]
 
 
 def script_filename(run: RunResult) -> str:
@@ -73,6 +104,8 @@ def generate_script(run: RunResult) -> str:
         if action is None or not result.ok:
             continue  # on ne rejoue que ce qui a fonctionné
         args = action.args
+        if result.dialog is not None:  # Playwright fermerait la fenêtre avec Annuler : on donne la réponse de l'agent
+            lines += _dialog_code(result.dialog)
         if action.name == "goto":
             lines.append(f"page.goto({args['url']!r})")
         elif action.name == "click":
@@ -81,9 +114,16 @@ def generate_script(run: RunResult) -> str:
             lines.append(f"{locator_code(result.element)}.fill({args['text']!r})")
         elif action.name == "select":
             lines.append(f"{locator_code(result.element)}.select_option({args['value']!r})")
+        elif action.name == "wait":
+            if "text" not in args:
+                lines.append(f"page.wait_for_timeout({args['seconds'] * 1000})")
+            else:
+                lines.append(_text_code(args["text"], result.frame, result.in_shadow, f", timeout={args['seconds'] * 1000}"))
         elif action.name == "check_text":
-            assertion = "not_to_contain_text" if args.get("absent") else "to_contain_text"
-            lines.append(f"expect(page.locator('body')).{assertion}({args['text']!r}, ignore_case=True, use_inner_text=True)")
+            if args.get("absent"):
+                lines.append(f"expect(page.locator('body')).not_to_contain_text({args['text']!r}, ignore_case=True, use_inner_text=True)")
+            else:
+                lines.append(_text_code(args["text"], result.frame, result.in_shadow))
         elif action.name == "check_url":
             assertion = "not_to_have_url" if args.get("absent") else "to_have_url"
             lines.append(f"expect(page).{assertion}(re.compile(re.escape({args['contains']!r})))")
@@ -95,9 +135,17 @@ def generate_script(run: RunResult) -> str:
             message = f"« {args['text']} » doit apparaître {args['count']} fois"
             lines.append(f"assert attendre(lambda: compte(page, {args['text']!r}) == {args['count']}), {message!r}")
         elif action.name == "check_value":
-            # Vérification réussie : on reprend la valeur réelle (pour une liste, la valeur de l'option)
-            expected = result.value if result.check and result.value is not None else args["value"]
-            lines.append(f"expect({locator_code(result.element)}).to_have_value({expected!r})")
+            element = result.element
+            if args.get("regex"):  # un format, pas une valeur exacte
+                expected = f"re.compile({args['value']!r})"
+            else:  # vérification réussie : on reprend la valeur réelle (pour une liste, la valeur de l'option)
+                expected = repr(result.value if result.check and result.value is not None else args["value"])
+            if element.reads_text():  # zone de texte riche, liste « maison » : son texte affiché
+                lines.append(f"expect({locator_code(element)}).to_have_text({expected}, use_inner_text=True)")
+            elif element.tag == "select" and args.get("regex"):  # le motif porte sur le libellé de l'option choisie
+                lines.append(f"expect({locator_code(element)}.locator('option:checked')).to_have_text({expected})")
+            else:
+                lines.append(f"expect({locator_code(element)}).to_have_value({expected})")
         elif action.name == "check_state":
             lines.append(f"expect({locator_code(result.element)}).{_STATE_ASSERTIONS[args['state']]}")
         elif action.name == "check_visual":  # avis du modèle sur une capture : rien à rejouer sans IA

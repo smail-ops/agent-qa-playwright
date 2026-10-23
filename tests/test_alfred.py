@@ -74,6 +74,31 @@ def test_libelles_des_verifications():
     assert narration.action_label(negative) == "Vérification : l'URL ne contient pas « inventory »"
 
 
+def test_attente_fenetre_et_nouveaux_elements_racontes():
+    """Attente, réponse prévue à une fenêtre JavaScript, motif, zone de texte riche, liste « maison » et icône."""
+    from agent.browser import ActionResult
+    from agent.runner import Step
+
+    q = narration.q
+    attente = Action("wait", {"seconds": 15, "text": "Data loaded"})
+    assert narration.action_label(attente) == f"Attente de {q('Data loaded')}, 15 s au plus"
+    assert narration.action_speech(attente) == f"J'attends que {q('Data loaded')} s'affiche."
+    assert narration.action_label(Action("wait", {"seconds": 3})) == "Pause de 3 s"
+    refus = Action("dialog", {"accept": False})
+    assert narration.action_label(refus) == "Réponse prévue à la prochaine fenêtre : Annuler"
+    assert narration.action_speech(refus) == "À la prochaine fenêtre, je répondrai Annuler."
+    motif = Action("check_value", {"ref": 1, "value": "^PROMO-", "regex": True})
+    assert narration.action_label(motif, element(aria="Code promo")) == f"Vérification : le champ {q('Code promo')} suit le motif {q('^PROMO-')}"
+    assert narration.element_name(element("body", text="Votre note", editable=True, aria="Note")) == f"la zone de texte {q('Note')}"
+    assert narration.element_name(element("div", text="-- Select --", field=True, label="User Role")) == f"le champ {q('User Role')}"
+    assert narration.element_name(element("div", text="ESS", role="option")) == f"l'option {q('ESS')}"
+    assert narration.element_name(element("button", text="⚙", aria="Générer un code")) == f"le bouton {q('Générer un code')}"
+    message = "Confirmer l'envoi ?"
+    fenetre = {"type": "confirm", "message": message, "accepted": True, "text": None}
+    clic = Step(2, Action("click", {"ref": 1}), ActionResult(True, "Clic", dialog=fenetre))
+    assert narration.step_speech(clic) == f"Une fenêtre affichait {q(message)}. J'ai répondu OK."
+
+
 # --- Serveur -------------------------------------------------------------------------
 
 

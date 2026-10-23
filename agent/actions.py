@@ -27,8 +27,12 @@ ACTIONS: dict[str, dict[str, type]] = {
     "check_value": {"ref": int, "value": str},
     "check_state": {"ref": int, "state": str},
     "check_visual": {"expected": str, "seen": str, "ok": bool},
+    "wait": {"seconds": int},
+    "dialog": {"accept": bool},
     "finish": {"status": str},
 }
+
+MAX_WAIT_S = 30  # attente la plus longue que l'action wait accepte
 
 # Les vérifications : leur résultat (vrai ou faux) décide du statut final, pas l'avis du modèle.
 CHECKS = ("check_text", "check_url", "check_order", "check_count", "check_value", "check_state", "check_visual")
@@ -42,9 +46,14 @@ _STATE_ALIASES = {"actif": "enabled", "activé": "enabled", "grisé": "disabled"
 
 # Arguments facultatifs. « absent » transforme une vérification en vérification
 # négative : « le message d'erreur ne s'affiche pas », « l'URL ne contient pas ».
+# « regex » : la valeur attendue est un motif (un code généré, une date), pas un texte exact.
+# « text » de wait : le texte dont on attend l'affichage ; « text » de dialog : la saisie d'une fenêtre prompt.
 OPTIONAL_ARGS: dict[str, dict[str, type]] = {
     "check_text": {"absent": bool},
     "check_url": {"absent": bool},
+    "check_value": {"regex": bool},
+    "wait": {"text": str},
+    "dialog": {"text": str},
 }
 
 STATUSES = ("PASS", "FAIL", "BLOQUE")
@@ -144,6 +153,18 @@ def parse_action(raw: str) -> Action:
         if state not in STATES:
             raise ValueError(f"état « {state} » invalide (attendu : {', '.join(STATES)})")
         clean_args["state"] = state
+    if name == "check_value" and clean_args.get("regex"):
+        try:
+            re.compile(clean_args["value"])
+        except re.error as exc:
+            raise ValueError(f"motif « {clean_args['value']} » invalide pour l'action check_value ({exc})") from exc
+    if name == "wait":
+        if not 1 <= clean_args["seconds"] <= MAX_WAIT_S:
+            raise ValueError(f"argument « seconds » invalide pour l'action wait (de 1 à {MAX_WAIT_S} secondes)")
+        if "text" in clean_args and not clean_args["text"].strip():
+            raise ValueError("argument « text » vide pour l'action wait")
+    if name == "dialog" and not clean_args["accept"]:
+        clean_args.pop("text", None)  # une saisie n'a de sens que si l'on répond OK
 
     if name == "finish":
         status = clean_args["status"].strip().upper()
