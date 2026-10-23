@@ -126,6 +126,8 @@ def build_report(run: RunResult) -> str:
         if run.diagnosis:
             nature, gravite = NATURES[run.diagnosis["nature"]], GRAVITES[run.diagnosis["gravite"]].lower()
             lines += [f"- Nature probable, selon l'IA : **{nature}**, gravité {gravite}.", f"- {run.diagnosis['explication']}"]
+            lines += [f"- Documentation officielle : [{source['titre']}]({source['url']})"
+                      for source in run.diagnosis.get("sources", [])]
         lines.append(f"- [Fiche d'anomalie]({run.anomaly_path.name}) : étapes pour reproduire, résultat obtenu et attendu, capture.")
 
     generated = [

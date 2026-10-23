@@ -139,7 +139,7 @@ def test_resultats_attendus_du_cas():
 def test_diagnostic_normalise():
     data = parse_diagnosis('Voici : ```json\n{"nature": "Application", "gravité": "majeur", "titre": "T", '
                            '"explication": "E", "suggestion": "S"}\n```')
-    assert data == {"nature": "bug", "gravite": "majeure", "titre": "T", "explication": "E", "suggestion": "S"}
+    assert data == {"nature": "bug", "gravite": "majeure", "titre": "T", "explication": "E", "suggestion": "S", "sources": []}
 
 
 def test_diagnostic_avec_la_vision(echec):
@@ -168,3 +168,41 @@ def test_etapes_pour_reproduire_avec_cadre_fenetre_et_attente():
     assert reproduction_step(Step(4, Action("dialog", {"accept": True}), ActionResult(True, "ok"))) is None
     attente = Step(5, Action("wait", {"seconds": 10, "text": "Chargé"}), ActionResult(True, "ok"))
     assert reproduction_step(attente) == "Attendre l'affichage de « Chargé » (10 s au plus)"
+
+
+def test_erreur_technique_eclairee_par_la_documentation(pw_page, demo_url, tmp_path, monkeypatch):
+    """Une erreur de Playwright : le programme lit la page officielle qui en parle, le modèle n'en cite que des extraits."""
+    from agent import documentation
+    from test_documentation import DOCUSAURUS, INPUT
+
+    monkeypatch.setattr(documentation, "fetch", lambda url, timeout=None: DOCUSAURUS if url == INPUT else "")
+    scenario = [
+        {"action": "fill", "target": '[data-test="login-button"]', "args": {"text": "standard_user"}},  # un bouton, pas un champ
+        {"action": "finish", "args": {"status": "BLOQUE", "summary": "Impossible de remplir le champ"}},
+    ]
+    run = Agent(ScriptedProvider(scenario)).run(pw_page, make_case(demo_url), tmp_path / "rapport")
+    assert run.status == "BLOQUE" and "Erreur Playwright" in run.steps[1].result.detail
+
+    modele = FauxModele(json.dumps({**DIAGNOSTIC, "nature": "test", "sources": [1, 5]}, ensure_ascii=False))
+    diagnosis, missing = diagnose(run, modele)
+    assert missing == "" and diagnosis["sources"] == [
+        {"titre": "Playwright : Input : saisie, clavier, fichiers, survol, glisser-déposer, Text input", "url": INPUT + "#text-input"}]
+    user = modele.recu[1]
+    assert "## Documentation officielle de Playwright (extraits numérotés)" in user
+    assert "[1] Playwright : Input : saisie, clavier, fichiers, survol, glisser-déposer, Text input" in user
+
+    fiche = build_anomaly(run, diagnosis)
+    assert "**Dans la documentation officielle :**" in fiche and f"({INPUT}#text-input)" in fiche
+    run.anomaly_path, run.diagnosis = tmp_path / "anomalie.md", diagnosis
+    assert f"Documentation officielle : [Playwright : Input" in build_report(run)
+
+
+def test_echec_fonctionnel_sans_documentation(echec):
+    """Une vérification en échec n'est pas une erreur technique : pas de documentation, pas de lien."""
+    from agent.anomalie import read_documentation
+
+    assert read_documentation(echec) is None
+    modele = FauxModele(json.dumps({**DIAGNOSTIC, "sources": [1]}, ensure_ascii=False))
+    diagnosis, _ = diagnose(echec, modele)
+    assert diagnosis["sources"] == [] and "Documentation officielle" not in modele.recu[1]
+    assert "Dans la documentation officielle" not in build_anomaly(echec, diagnosis)

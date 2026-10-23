@@ -46,3 +46,15 @@ def pw_page(pw_browser):
     page = context.new_page()
     yield page
     context.close()
+
+
+@pytest.fixture(autouse=True)
+def documentation_hors_ligne(monkeypatch):
+    """Pas de réseau pendant les tests : la documentation officielle se lit dans des pages d'exemple."""
+    from agent import documentation
+
+    def hors_ligne(url, timeout=None):
+        raise OSError("pas de réseau pendant les tests")
+
+    monkeypatch.setattr(documentation, "fetch", hors_ligne)
+    monkeypatch.setattr(documentation, "_CACHE", {})

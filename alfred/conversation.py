@@ -12,6 +12,10 @@ réponse revient en JSON :
 Comme pour l'agent, le modèle ne fait que proposer : l'action est contrôlée
 (liste fermée, cas existant, adresse valide) avant de partir vers la page, et
 la phrase lue à voix haute ne contient jamais un mot de passe.
+
+Une question technique sur un outil (« comment gérer une iframe avec Robot
+Framework ? ») part avec des extraits de la documentation officielle, et la
+réponse revient avec les liens des pages citées.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from agent import __version__
+from agent import __version__, documentation
 from agent.actions import _extract_json
 from agent.propositions import ask, case_from_dict, next_codes
 from agent.providers import Provider
@@ -74,7 +78,8 @@ Ce que fait l'agent que tu pilotes :
 - L'IA propose, le programme vérifie : le verdict (réussi, échoué ou bloqué) vient des vérifications réelles, jamais de l'avis du modèle.
 - Il voit aussi dans les cadres (iframes) et les composants web (Shadow DOM), manie les listes déroulantes faites de div, répond aux fenêtres JavaScript, attend un chargement lent et vérifie un format avec un motif. Les e-mails, téléphones, cartes et IBAN affichés par la page sont masqués avant l'envoi au modèle.
 - Après chaque exécution, il génère trois tests qui se rejouent sans IA : pytest avec Playwright, Robot Framework avec SeleniumLibrary, et un scénario Gherkin en français. Un parcours réussi est mémorisé et rejoué sans IA ; si le site change, l'IA répare le parcours.
-- Quand un test échoue, il rédige la fiche d'anomalie, avec un diagnostic de l'IA présenté comme un avis à confirmer.
+- Quand un test échoue, il rédige la fiche d'anomalie, avec un diagnostic de l'IA présenté comme un avis à confirmer. Sur une erreur technique de Playwright, le diagnostic s'appuie sur des extraits de la documentation officielle, avec leurs liens.
+- À une question technique sur Playwright, Selenium ou Robot Framework (« comment gérer une iframe ? »), tu réponds à partir de leur documentation officielle, et le lien de la page s'affiche sous ta réponse.
 - Il analyse un site pour proposer des user stories et leurs critères en Gherkin, puis les cas de test d'une user story.
 - Une campagne de vingt cas sur cinq sites d'entraînement mesure la justesse de ses verdicts.
 - Ses limites : il ne tape pas de touche du clavier, ne survole pas, ne glisse-dépose pas, ne suit pas un nouvel onglet, n'envoie pas de fichier, et s'arrête après vingt actions ou trois erreurs de suite."""
@@ -316,6 +321,16 @@ def parse_reply(raw: str, cases: list[dict], cases_dir: Path, default: str, secr
 
 def converse(provider: Provider, text: str, history: list[dict], context: str, cases: list[dict], cases_dir: Path,
              default: str, secrets: set[str] = frozenset(), results: list[dict] = ()) -> dict:
-    """Une phrase du testeur, une réponse d'Alfred (une requête au modèle)."""
+    """Une phrase du testeur, une réponse d'Alfred (une requête au modèle).
+
+    Une question technique sur Playwright, Selenium ou Robot Framework reçoit une réponse tirée
+    de la documentation officielle, avec les liens des pages citées (voir agent/documentation.py).
+    """
+    pages = documentation.question_pages(text)
+    reply = documentation.answer(provider, text, pages, lambda model, system, user: ask(model, system, user, max_tokens=2000)) \
+        if pages else None
+    if reply is not None:  # None : les pages lues ne parlent pas du sujet, Alfred répond comme d'habitude
+        reply["reponse"] = _say(redact(reply["reponse"], secrets))
+        return reply
     raw = ask(provider, system_prompt(provider), build_message(text, history, context), max_tokens=4000)
     return parse_reply(raw, cases, cases_dir, default, secrets, results)

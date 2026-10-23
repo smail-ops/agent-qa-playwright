@@ -35,6 +35,7 @@ from urllib.parse import unquote, urlsplit
 
 from playwright.sync_api import Error as PlaywrightError
 
+from agent import documentation
 from agent.analyse import AnalysisError, SiteAnalysis, analyse_site
 from agent.memoire import Memory
 from agent.propositions import (
@@ -499,6 +500,11 @@ class AlfredHandler(BaseHTTPRequestHandler):
             if not text:
                 return self._json(400, {"error": "Je n'ai rien entendu."})
             provider = self._conversation_provider(str(body.get("provider") or ""))
+            pages = documentation.question_pages(text)
+            if provider is None and pages:  # sans clé, une question sur un outil reçoit au moins les bonnes pages
+                return self._json(200, {"reponse": "Pour vous répondre, il me faudrait une clé Gemini ou Claude. Voici déjà "
+                                                   "les pages de la documentation officielle qui en parlent.",
+                                        "action": {"type": "aucune"}, "sources": documentation.links(pages)})
             if provider is None:
                 return self._json(503, {"error": "Je n'ai pas compris cette phrase, et pour une conversation libre il me "
                                                  "faut une clé Gemini ou Claude dans le fichier .env. Sans clé, dites par "
