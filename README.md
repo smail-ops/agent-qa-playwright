@@ -9,7 +9,7 @@ On lui donne l'adresse d'un site, ou un cas de test écrit en français comme da
 | | Ce que fait l'agent |
 |---|---|
 | **Concevoir** | À partir d'une URL, il analyse le site et propose des **user stories** avec leurs critères d'acceptation en **Gherkin**, puis les **cas de test** d'une user story. |
-| **Exécuter** | Il exécute un cas de test, en Markdown ou en Gherkin, avec six familles de vérifications (texte, URL, ordre, nombre, valeur d'un champ ou son format, état d'un bouton ou d'une case). Il entre dans les **iframes** et les **composants web (Shadow DOM)**, manie les **listes déroulantes maison**, répond aux **fenêtres JavaScript** et **attend** un chargement lent. Avec la **vision**, le modèle voit aussi l'écran. |
+| **Exécuter** | Il exécute un cas de test, en Markdown ou en Gherkin, avec six familles de vérifications (texte, URL, ordre, nombre, valeur d'un champ ou son format, état d'un bouton ou d'une case). Il entre dans les **iframes** et les **composants web (Shadow DOM)**, manie les **listes déroulantes maison**, répond aux **fenêtres JavaScript**, accepte le **bandeau de cookies** et **attend** un chargement lent. Avec la **vision**, le modèle voit aussi l'écran. |
 | **Industrialiser** | Chaque exécution génère un test **pytest-playwright**, un test **Robot Framework** (SeleniumLibrary) et un **scénario Gherkin** exécutable. Un parcours réussi est **mémorisé** et rejoué sans IA ; si le site change, l'IA répare le parcours (**auto-réparation**). |
 | **Analyser** | Quand un test échoue, il rédige la **fiche d'anomalie** (étapes pour reproduire, résultat obtenu et attendu, capture), avec un diagnostic de l'IA présenté comme un avis à confirmer. Sur une erreur technique, le diagnostic s'appuie sur la **documentation officielle** de Playwright, liens à l'appui. |
 | **Piloter** | **Alfred**, une interface vocale, commente la mission en direct et répond aux questions : « pourquoi le dernier test a échoué ? », « refais le test de connexion sur le site de recette », « comment gère-t-on une iframe avec Robot Framework ? » (réponse tirée de la documentation officielle, avec le lien). |
@@ -42,7 +42,7 @@ flowchart LR
     DOC -. extraits cités .-> AL
 ```
 
-À chaque tour de l'agent :
+À l'ouverture de la page, un bandeau de cookies qui la couvre est accepté par le programme, sans IA (voir [Le bandeau de cookies](#le-bandeau-de-cookies)). Puis, à chaque tour de l'agent :
 
 1. **Observer** : l'agent liste les éléments visibles de la page (champs, boutons, liens, listes, cases à cocher) et les numérote. Il regarde aussi dans les cadres (iframes) et les composants web (Shadow DOM), et repère les éléments cliquables sans rôle standard, comme les options d'une liste déroulante faite de div. Un champ sans attribut est nommé par le libellé posé à côté de lui.
 2. **Décider** : il envoie au modèle le cas de test, l'historique et cette liste, données personnelles masquées. Le modèle répond par une seule action en JSON, par exemple `{"action": "fill", "args": {"ref": 1, "text": "standard_user"}}`.
@@ -62,6 +62,7 @@ Une IA peut se tromper. Le programme ne lui fait pas confiance aveuglément :
 - **Quotas respectés** : quand l'API signale une limite par minute, l'agent patiente le temps qu'elle indique, et Alfred l'annonce. Un quota du jour épuisé arrête la mission, avec l'heure de renouvellement.
 - **Clés protégées** : les clés d'API restent dans un fichier `.env`, exclu de Git, comme le dossier `memoire/`.
 - **Données personnelles masquées** : avant chaque envoi au modèle, les adresses e-mail, numéros de téléphone, de carte bancaire et IBAN affichés par la page sont remplacés par un repère (« [e-mail masqué] »), sauf ceux que le cas de test donne lui-même. Un numéro de carte n'est masqué que s'il passe le contrôle de Luhn, un IBAN que si sa clé est juste : un numéro de commande reste lisible.
+- **Bandeau de cookies accepté sans IA** : seul le bouton qui accepte un bandeau de cookies est cliqué par le programme. Un bouton « Accepter » hors d'un tel bandeau ne l'est jamais, et un cas de test qui porte sur le bandeau (le refuser, vérifier qu'il s'affiche) le laisse au modèle.
 - **Fenêtres JavaScript tracées** : une fenêtre d'alerte ou de confirmation reçoit OK, sauf consigne contraire du modèle (action `dialog`), et son message est noté dans le rapport. Les tests générés lui font la même réponse, après avoir vérifié son message.
 - **Vision signalée** : une vérification faite à l'œil par l'IA sur une capture (`check_visual`) est marquée comme un avis dans le rapport, n'est pas rejouée par les tests générés (elle y figure comme « à automatiser ») et un parcours qui en dépend n'est pas mémorisé.
 - **Conversation contrôlée** : quand on parle librement à Alfred, le modèle ne peut que proposer une action d'une liste fermée (lancer, afficher, arrêter, ouvrir un fichier, rédiger un cas, analyser un site). Le programme vérifie que le cas existe et que l'adresse est valide, et la réponse lue à voix haute ne contient jamais un mot de passe.
@@ -112,6 +113,12 @@ Une troisième démo, `CT-91`, réunit ce qui bloquait l'agent sur les vrais sit
 python -m agent cas_de_test/demo/CT-91_demo_iframe_shadow_dom.md --provider scripted --scenario cas_de_test/demo/scenario_CT-91.json --headed
 ```
 
+Une quatrième démo, `CT-92`, s'ouvre sous un bandeau de cookies qui couvre la page, comme automationexercise.com vu depuis l'Europe. Le programme l'accepte, sans IA, avant que l'agent ne remplisse le formulaire d'inscription :
+
+```bash
+python -m agent cas_de_test/demo/CT-92_demo_inscription_lettre.md --provider scripted --scenario cas_de_test/demo/scenario_CT-92.json --headed
+```
+
 Exemples de résultats : [`docs/exemple-demo`](docs/exemple-demo/rapport.md), [`docs/exemple-tri-commande`](docs/exemple-tri-commande/rapport.md) et [`docs/exemple-atelier`](docs/exemple-atelier/rapport.md).
 
 Encore plus simple : `python -m alfred` ouvre l'interface Alfred, qui sert elle-même le site de démo (un seul terminal suffit). Sur Mac, un double-clic sur `Alfred.command` fait la même chose.
@@ -148,7 +155,7 @@ Alfred est une interface web locale. On choisit un cas de test (ou on l'écrit),
 python -m alfred
 ```
 
-Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du projet. La page s'ouvre toute seule sur http://127.0.0.1:8765. Alfred sert aussi le site de démo : les cas CT-00 et CT-90 fonctionnent avec le moteur « Démo sans IA », sans clé d'API.
+Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du projet. La page s'ouvre toute seule sur http://127.0.0.1:8765. Alfred sert aussi le site de démo : les cas de démo (CT-00, CT-90, CT-91 et CT-92) fonctionnent avec le moteur « Démo sans IA », sans clé d'API.
 
 - **Le cadran** : l'anneau extérieur compte les actions (20 au plus), en vert les vérifications réussies et en rouge les échecs. L'anneau intérieur montre la phase en cours : observer, réfléchir, agir.
 - **La voix** : Alfred annonce ce qu'il fait, puis le verdict. Les mots de passe ne sont jamais lus ni affichés.
@@ -429,6 +436,16 @@ robot rapports/<dossier>/<cas_de_test>_bdd.robot
 
 Exemple complet : [`docs/exemple-tri-commande`](docs/exemple-tri-commande/ct_90_demo_locale_tri_panier_et_commande.feature).
 
+## Le bandeau de cookies
+
+Sur un site européen, un bandeau de consentement (RGPD) couvre souvent la page à la première visite et bloque les clics tant qu'on n'y a pas répondu. Le testeur l'accepte et passe à la suite : l'agent fait de même, sans appel au modèle.
+
+- **Avant que l'agent ne regarde la page**, le programme cherche le bouton qui accepte. Il reconnaît les outils de consentement courants (Google, OneTrust, Didomi, Axeptio, Cookiebot, Quantcast, tarteaucitron, Usercentrics...) et, à défaut, un bandeau fait par le site : un bloc fixe ou une fenêtre qui parle de cookies, avec un bouton « Tout accepter », « J'accepte », « Accept all »... Un bouton « Accepter » ailleurs dans la page n'est jamais cliqué.
+- **Le bandeau arrive souvent après la page** : quand la page charge un outil de consentement, le programme l'attend 5 secondes au plus. Sans outil de consentement, il ne fait que regarder, sans rien attendre. Il regarde de nouveau avant chaque action, pour un bandeau qui arriverait plus tard.
+- **Dans le rapport**, l'acceptation est une étape « cookies », marquée « Sans IA ». Elle ne compte pas dans les 20 actions du modèle, et la mémoire ne la garde pas : le programme la refait à chaque exécution.
+- **Les tests générés** acceptent le bandeau s'il s'affiche : `page.add_locator_handler` dans le test pytest (Playwright clique dès que le bandeau couvre la page), le mot-clé « Accepter le bandeau de cookies » dans les tests Robot Framework, et la phrase « Et j'accepte le bandeau de cookies » dans le scénario Gherkin.
+- **Un cas de test qui porte sur le bandeau** garde la main : son titre ou ses résultats attendus parlent du bandeau ou du consentement, ou il demande de refuser ou de personnaliser les cookies. Le bandeau est alors un élément comme un autre, que le modèle manie selon les étapes. Une étape qui demande seulement de l'accepter, comme dans les cas d'Automation Exercise, est faite par le programme.
+
 ## La mémoire des parcours
 
 Quand un test réussit avec l'IA, son parcours est enregistré dans `memoire/` : les actions, et pour chaque élément son sélecteur et son XPath. À la prochaine exécution du même cas :
@@ -455,17 +472,17 @@ Quand l'échec vient d'une erreur technique de Playwright (« Timeout 5000ms exc
 
 ## Tests du projet
 
-Les 354 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
+Les 375 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
 
 ```bash
 pytest
 ```
 
-Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses du modèle, la construction des requêtes Gemini et Claude (avec ou sans image), l'observation de la page (cadres, composants web, listes maison, libellés posés à côté des champs, cadres de publicité ignorés), les fenêtres JavaScript, l'attente d'un texte, le masquage des données personnelles, les familles de vérifications (dont l'attente d'une page qui change encore, les motifs et l'avis visuel), les règles de statut (FAIL forcé, PASS sans vérification refusé, arrêt après erreurs), la mémoire (rejeu sans appel au modèle, auto-réparation, cas modifié, autre site), la fiche d'anomalie, la recherche dans la documentation officielle (choix des pages, lecture des pages Docusaurus, docutils et libdoc, classement des parties, sources citées contrôlées, page injoignable, quota épuisé), les tests générés, l'analyse d'un site (connexion avec un compte de test, liens risqués jamais suivis, mot de passe jamais transmis), le contrôle des user stories et des cas proposés, et le bilan de campagne (lecture du fichier de campagne, choix de la dernière exécution, classement des écarts, exécution coupée par le quota, période et site, rendu). Ils vérifient aussi la campagne terrain elle-même : vingt cas, quatre par site, un fichier par cas sur la bonne adresse, et aucun verdict ni piège annoncé dans le texte d'un cas. Le script pytest est rejoué tel quel. Les fichiers `.robot`, classique et Gherkin, sont exécutés par Robot Framework, avec un double de SeleniumLibrary piloté par Playwright (`tests/robot_double`) pour se passer de Chrome.
+Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses du modèle, la construction des requêtes Gemini et Claude (avec ou sans image), l'observation de la page (cadres, composants web, listes maison, libellés posés à côté des champs, cadres de publicité ignorés), les fenêtres JavaScript, l'attente d'un texte, le masquage des données personnelles, les familles de vérifications (dont l'attente d'une page qui change encore, les motifs et l'avis visuel), les règles de statut (FAIL forcé, PASS sans vérification refusé, arrêt après erreurs), la mémoire (rejeu sans appel au modèle, auto-réparation, cas modifié, autre site), la fiche d'anomalie, le bandeau de cookies (outils connus, bandeau fait par le site, bouton « Accepter » hors bandeau jamais cliqué, attente d'un bandeau tardif, cas qui porte sur le bandeau, analyse d'un site), la recherche dans la documentation officielle (choix des pages, lecture des pages Docusaurus, docutils et libdoc, classement des parties, sources citées contrôlées, page injoignable, quota épuisé), les tests générés, l'analyse d'un site (connexion avec un compte de test, liens risqués jamais suivis, mot de passe jamais transmis), le contrôle des user stories et des cas proposés, et le bilan de campagne (lecture du fichier de campagne, choix de la dernière exécution, classement des écarts, exécution coupée par le quota, période et site, rendu). Ils vérifient aussi la campagne terrain elle-même : vingt cas, quatre par site, un fichier par cas sur la bonne adresse, et aucun verdict ni piège annoncé dans le texte d'un cas. Le script pytest est rejoué tel quel. Les fichiers `.robot`, classique et Gherkin, sont exécutés par Robot Framework, avec un double de SeleniumLibrary piloté par Playwright (`tests/robot_double`) pour se passer de Chrome.
 
 Les tests d'Alfred vérifient l'API, le flux en direct, l'arrêt d'une mission, la mémoire, l'annonce du diagnostic, les propositions, la conversation libre (contexte envoyé au modèle, actions contrôlées, mot de passe jamais prononcé, réponses tirées de la documentation et liens affichés), les protections du serveur et la compréhension des commandes vocales, puis pilotent dans l'interface des missions complètes, une analyse de site et un cas de test dicté puis lancé sur « vas-y ».
 
-GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des trois démos avec le vrai SeleniumLibrary et Chrome : cadre sélectionné avec `Select Frame`, composant web atteint par un localisateur `dom:`, fenêtre traitée par `Handle Alert`. Si un test Robot échoue, son nom et son message s'affichent sur la page du run, lisibles sans être connecté à GitHub. Le double de SeleniumLibrary répond OK à toutes les fenêtres : la réponse Annuler et la saisie dans une fenêtre ne sont vérifiées qu'avec le vrai SeleniumLibrary.
+GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des quatre démos avec le vrai SeleniumLibrary et Chrome : cadre sélectionné avec `Select Frame`, composant web atteint par un localisateur `dom:`, fenêtre traitée par `Handle Alert`, bandeau de cookies accepté par « Accepter le bandeau de cookies ». Si un test Robot échoue, son nom et son message s'affichent sur la page du run, lisibles sans être connecté à GitHub. Le double de SeleniumLibrary répond OK à toutes les fenêtres : la réponse Annuler et la saisie dans une fenêtre ne sont vérifiées qu'avec le vrai SeleniumLibrary.
 
 ## Structure du code
 
@@ -483,6 +500,7 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 | `agent/providers.py` | appels aux API Gemini et Claude, faux modèle pour les tests |
 | `agent/runner.py` | boucle de l'agent, rejeu de la mémoire, calcul du statut final, événements pour une interface |
 | `agent/memoire.py` | mémoire des parcours réussis et rejeu sans IA |
+| `agent/cookies.py` | bandeau de cookies : reconnu (outils de consentement courants, bandeau fait par le site) et accepté sans IA |
 | `agent/anomalie.py` | fiche d'anomalie et diagnostic de l'échec par le modèle |
 | `agent/documentation.py` | recherche dans la documentation officielle de Playwright, Selenium et Robot Framework : pages choisies, lecture, extraits, sources citées |
 | `agent/execution.py` | exécution complète d'un cas de test, commune à la ligne de commande et à Alfred |
@@ -534,6 +552,7 @@ Les limites de l'agent, relevées dans le code et, pour la plupart, vérifiées 
 - Un nouvel onglet : l'agent reste sur la première page.
 - Au-delà de 80 éléments par page, et de 1 500 caractères de texte envoyés au modèle (600 par cadre).
 - Les images, les couleurs et le canvas, sauf avec la vision, et c'est alors un avis.
+- Un bandeau de cookies placé dans un cadre (iframe), comme celui de Sourcepoint, n'est pas accepté par le programme : l'agent le voit comme un cadre, et le modèle peut l'accepter lui-même.
 
 **Ce que l'agent ne sait pas faire**
 
@@ -554,7 +573,10 @@ Les limites de l'agent, relevées dans le code et, pour la plupart, vérifiées 
 **Données sensibles**
 
 - Les mots de passe saisis apparaissent en clair dans `rapport.md`, `anomalie.md`, la mémoire et les tests générés. Alfred, lui, ne les prononce ni ne les affiche.
+- Le bandeau de cookies est accepté, jamais refusé : les traceurs du site sont actifs pendant le test. Chaque test repart d'un navigateur neuf, qui les oublie.
 - Le masquage repère les adresses e-mail, les numéros de téléphone, de carte et les IBAN, pas les noms ni les adresses postales. Le texte du cas, identifiants compris, part tel quel chez le fournisseur du modèle, et avec la vision, la capture d'écran n'est pas masquée.
+
+**Nouveau en version 0.7** : le bandeau de cookies accepté par le programme, sans IA, et par les tests générés.
 
 **Nouveau en version 0.6** : les réponses tirées de la documentation officielle, pour les questions à Alfred comme pour les erreurs techniques dans la fiche d'anomalie.
 

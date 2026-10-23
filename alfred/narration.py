@@ -89,6 +89,8 @@ def action_label(action: Action | None, element: Element | None = None) -> str:
     args = action.args
     if action.name == "goto":
         return f"Ouverture de {args['url']}"
+    if action.name == "cookies":
+        return f"Bandeau de cookies accepté : {q(args['bouton'])}"
     if action.name == "fill":
         if is_secret(element):
             return f"Saisie du mot de passe dans {element_name(element)}"
@@ -138,6 +140,8 @@ def action_speech(action: Action, element: Element | None = None, number: int = 
     args = action.args
     if action.name == "goto":
         return "J'ouvre la page du cas de test." if number == 1 else "J'ouvre une nouvelle page."
+    if action.name == "cookies":
+        return "J'accepte le bandeau de cookies."
     if action.name == "fill":
         if is_secret(element):
             return "Je saisis le mot de passe."
