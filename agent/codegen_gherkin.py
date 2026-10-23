@@ -293,7 +293,10 @@ def _element_step(scenario: _Scenario, names: _Names, action, result) -> None:
         define(sentence, [f"Click Element    {locator}"])
         scenario.add("action", sentence)
     elif action.name == "fill":
-        define(f'je saisis "${{texte}}" dans {name}', [f"Input Text    {locator}    ${{texte}}"])
+        typing = [f"Input Text    {locator}    ${{texte}}"]
+        if element.editable():  # Chrome ne tape dans une zone de texte riche qu'après un vrai clic
+            typing.insert(0, f"Click Element    {locator}")
+        define(f'je saisis "${{texte}}" dans {name}', typing)
         scenario.add("action", f"je saisis {_quote(args['text'])} dans {name}")
     elif action.name == "select":
         # Libellé (« Prix croissant ») ou valeur (« price ») : les deux sont acceptés, comme pour l'agent

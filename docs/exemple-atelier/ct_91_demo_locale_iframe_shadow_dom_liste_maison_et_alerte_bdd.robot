@@ -41,6 +41,7 @@ je suis sur la page "${url}"
 
 je saisis "${texte}" dans la zone de texte "Note de commande"
     Select Frame    css:#editeur
+    Click Element    css:#note
     Input Text    css:#note    ${texte}
     Unselect Frame
 
