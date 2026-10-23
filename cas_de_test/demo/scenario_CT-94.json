@@ -1,0 +1,15 @@
+[
+  {"action": "click", "target": "#lien-fiche", "reason": "Étape 1 : le lien ouvre un nouvel onglet"},
+  {"action": "click", "target": "#ajouter", "reason": "Étape 2 : dans la fiche produit, ouverte dans le nouvel onglet"},
+  {"action": "check_text", "args": {"text": "Ajouté au comparateur"}, "reason": "Résultat attendu : dans la fiche"},
+  {"action": "switch_tab", "args": {"index": 1}, "reason": "Étape 2 : retour au premier onglet"},
+  {"action": "check_text", "args": {"text": "Comparateur : 1 produit"}, "reason": "Résultat attendu : le premier onglet est à jour"},
+  {"action": "upload", "target": "#piece-jointe", "args": {"file": "facture.txt"}, "reason": "Étape 3 : le fichier vient du dossier donnees_de_test"},
+  {"action": "check_text", "args": {"text": "Fichier reçu : facture.txt"}, "reason": "Résultat attendu : le fichier est reçu"},
+  {"action": "drag", "target": "#carte", "target_to": "#termine", "reason": "Étape 4 : glisser-déposer HTML5"},
+  {"action": "check_text", "args": {"text": "Tâche terminée"}, "reason": "Résultat attendu : la tâche est terminée"},
+  {"action": "fill", "target": "#note-interne", "args": {"text": "À relire lundi"}, "reason": "Étape 5 : le champ est dans un composant fermé"},
+  {"action": "click", "target": "#enregistrer", "reason": "Étape 5 : enregistrer la note"},
+  {"action": "check_text", "args": {"text": "Note enregistrée : À relire lundi"}, "reason": "Résultat attendu : la note est enregistrée"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Nouvel onglet, fichier joint, glisser-déposer et composant fermé : tous les résultats attendus sont vérifiés."}}
+]

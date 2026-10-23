@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Fiche produit</title>
+  <style>body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }</style>
+</head>
+<body>
+  <h1>Fiche produit : clavier mécanique</h1>
+  <p>Clavier mécanique, 105 touches, rétroéclairé.</p>
+  <button id="ajouter" type="button">Ajouter au comparateur</button>
+  <p id="etat" role="status"></p>
+  <script>
+    document.getElementById("ajouter").addEventListener("click", () => {
+      new BroadcastChannel("comparateur").postMessage(1);  // l'onglet de départ met son comparateur à jour
+      document.getElementById("etat").textContent = "Ajouté au comparateur";
+    });
+  </script>
+</body>
+</html>

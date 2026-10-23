@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Onglets et fichiers</title>
+  <style>
+    body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    section { margin: 24px 0; }
+    .colonnes { display: flex; gap: 16px; }
+    .colonne { flex: 1; min-height: 90px; border: 1px solid #999; padding: 8px; }
+    #carte { border: 1px solid #333; background: #f4f4f4; padding: 8px; margin-top: 8px; cursor: grab; }
+  </style>
+  <script>
+    // Composant web fermé (Shadow DOM « closed ») : le navigateur ne laisse pas les scripts y entrer
+    customElements.define("note-fermee", class extends HTMLElement {
+      constructor() {
+        super();
+        const racine = this.attachShadow({ mode: "closed" });
+        racine.innerHTML = `
+          <label for="note-interne">Note interne</label>
+          <input id="note-interne" aria-label="Note interne">
+          <button id="enregistrer" type="button">Enregistrer la note</button>
+          <p id="note-etat"></p>`;
+        racine.getElementById("enregistrer").addEventListener("click", () => {
+          racine.getElementById("note-etat").textContent = `Note enregistrée : ${racine.getElementById("note-interne").value}`;
+        });
+      }
+    });
+  </script>
+</head>
+<body>
+  <h1>Atelier onglets et fichiers</h1>
+  <p>Un lien qui ouvre un nouvel onglet, un fichier à joindre, une tâche à glisser et un composant fermé.</p>
+
+  <section>
+    <h2>Comparateur</h2>
+    <a id="lien-fiche" href="fiche_produit.html" target="_blank">Ouvrir la fiche produit</a>
+    <p id="comparateur">Comparateur : 0 produit</p>
+  </section>
+
+  <section>
+    <h2>Pièce jointe</h2>
+    <label for="piece-jointe">Pièce jointe</label>
+    <input id="piece-jointe" type="file">
+    <p id="fichier-recu"></p>
+  </section>
+
+  <section>
+    <h2>Tâches</h2>
+    <!-- Glisser-déposer HTML5 : la carte se dépose dans la colonne Terminé -->
+    <div class="colonnes">
+      <div id="a-faire" class="colonne">À faire
+        <div id="carte" draggable="true">Tâche : relire le cahier de tests</div>
+      </div>
+      <div id="termine" class="colonne dropzone" aria-label="Colonne Terminé">Terminé</div>
+    </div>
+    <p id="etat-tache"></p>
+  </section>
+
+  <section>
+    <h2>Note</h2>
+    <note-fermee></note-fermee>
+  </section>
+
+  <script>
+    new BroadcastChannel("comparateur").onmessage = (message) => {
+      document.getElementById("comparateur").textContent = `Comparateur : ${message.data} produit`;
+    };
+    document.getElementById("piece-jointe").addEventListener("change", (event) => {
+      const fichier = event.target.files[0];
+      document.getElementById("fichier-recu").textContent = fichier ? `Fichier reçu : ${fichier.name} (${fichier.size} octets)` : "";
+    });
+    const carte = document.getElementById("carte"), termine = document.getElementById("termine");
+    carte.addEventListener("dragstart", (event) => event.dataTransfer.setData("text/plain", "carte"));
+    termine.addEventListener("dragover", (event) => event.preventDefault());
+    termine.addEventListener("drop", (event) => {
+      event.preventDefault();
+      termine.append(carte);
+      document.getElementById("etat-tache").textContent = "Tâche terminée";
+    });
+  </script>
+</body>
+</html>

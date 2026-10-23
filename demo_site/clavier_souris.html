@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Clavier et souris</title>
+  <style>
+    body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    section { margin: 24px 0; }
+    /* Menu qui s'ouvre au survol, sans espace entre le bouton et son sous-menu */
+    .menu { display: inline-block; position: relative; }
+    .sous-menu { display: none; position: absolute; top: 100%; left: 0; margin: 0; padding: 8px 12px; list-style: none;
+                 background: #fff; border: 1px solid #999; min-width: 140px; }
+    .menu:hover .sous-menu { display: block; }
+    #titre-projet, #zone-fichier { display: inline-block; padding: 8px; border: 1px dashed #999; cursor: default; }
+    #menu-contextuel { border: 1px solid #999; padding: 8px; margin-top: 8px; }
+    .espace { height: 1600px; }
+    #avis { min-height: 40px; }
+  </style>
+</head>
+<body>
+  <h1>Atelier clavier et souris</h1>
+  <p>Ce que l'agent sait faire au clavier et à la souris, au-delà du clic et de la saisie.</p>
+
+  <section>
+    <h2>Recherche</h2>
+    <!-- Pas de bouton : la recherche part avec la touche Entrée -->
+    <label for="recherche">Recherche</label>
+    <input id="recherche" type="search">
+    <p id="resultat-recherche" role="status"></p>
+  </section>
+
+  <section>
+    <h2>Catalogue</h2>
+    <!-- Le sous-menu n'apparaît qu'au survol -->
+    <div class="menu">
+      <button id="catalogue" type="button" aria-haspopup="true">Catalogue</button>
+      <ul class="sous-menu">
+        <li><a id="lien-nouveautes" href="#nouveautes">Nouveautés</a></li>
+        <li><a id="lien-promotions" href="#promotions">Promotions</a></li>
+      </ul>
+    </div>
+    <p id="rayon"></p>
+  </section>
+
+  <section>
+    <h2>Projet</h2>
+    <!-- Double-clic pour renommer, clic droit pour le menu, Échap pour le fermer -->
+    <span id="titre-projet" role="button" tabindex="0" title="Double-cliquez pour renommer">Projet sans nom</span>
+    <div id="zone-fichier" role="button" tabindex="0" title="Clic droit pour les actions">Fichier rapport.pdf</div>
+    <div id="menu-contextuel" hidden>Menu contextuel : Ouvrir, Renommer, Supprimer</div>
+    <p id="etat-menu"></p>
+  </section>
+
+  <div class="espace"></div>
+
+  <!-- Les avis se chargent quand on arrive en bas de la page -->
+  <section id="avis" aria-label="Avis clients"></section>
+
+  <script>
+    document.getElementById("recherche").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        document.getElementById("resultat-recherche").textContent =
+          `Résultats pour « ${event.target.value} » : 3 produits`;
+      }
+    });
+    for (const lien of document.querySelectorAll(".sous-menu a")) {
+      lien.addEventListener("click", (event) => {
+        event.preventDefault();
+        document.getElementById("rayon").textContent = `Rayon : ${lien.textContent}`;
+      });
+    }
+    document.getElementById("titre-projet").addEventListener("dblclick", (event) => {
+      event.target.textContent = "Projet renommé";
+    });
+    document.getElementById("zone-fichier").addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      document.getElementById("menu-contextuel").hidden = false;
+      document.getElementById("etat-menu").textContent = "";
+    });
+    document.addEventListener("keydown", (event) => {
+      const menu = document.getElementById("menu-contextuel");
+      if (event.key === "Escape" && !menu.hidden) {
+        menu.hidden = true;
+        document.getElementById("etat-menu").textContent = "Menu fermé";
+      }
+    });
+    new IntersectionObserver((entrees, observateur) => {
+      if (entrees.some((entree) => entree.isIntersecting)) {
+        document.getElementById("avis").textContent = "Avis clients : 4,8 sur 5 (127 avis)";
+        observateur.disconnect();
+      }
+    }).observe(document.getElementById("avis"));
+  </script>
+</body>
+</html>

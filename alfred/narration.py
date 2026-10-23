@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agent.actions import STATE_LABELS
+from agent.actions import STATE_LABELS, du, jusqua, key_label
 from agent.runner import STOPPED_SUMMARY
 
 if TYPE_CHECKING:
@@ -33,11 +33,11 @@ def q(text: str) -> str:
     return f"«\u00a0{text}\u00a0»"
 
 
-def find_element(action: Action, observation: Observation | None) -> Element | None:
-    """Élément visé par l'action, retrouvé dans la page observée grâce à son numéro."""
-    if observation is None or "ref" not in action.args:
+def find_element(action: Action, observation: Observation | None, arg: str = "ref") -> Element | None:
+    """Élément visé par l'action (ou, avec arg="to", celui où déposer), retrouvé grâce à son numéro."""
+    if observation is None or arg not in action.args:
         return None
-    return next((e for e in observation.elements if e.ref == action.args["ref"]), None)
+    return next((e for e in observation.elements if e.ref == action.args[arg]), None)
 
 
 def is_secret(element: Element | None) -> bool:
@@ -82,11 +82,30 @@ def times(count: int) -> str:
     return "une fois" if count == 1 else f"{count} fois"
 
 
-def action_label(action: Action | None, element: Element | None = None) -> str:
-    """Libellé court d'une action, pour le journal de mission."""
+def action_label(action: Action | None, element: Element | None = None, target: Element | None = None) -> str:
+    """Libellé court d'une action, pour le journal de mission. target : l'élément où déposer (glisser-déposer)."""
     if action is None:
         return "Réponse illisible du modèle"
     args = action.args
+    if action.name == "click" and args.get("double"):
+        return f"Double-clic sur {element_name(element)}"
+    if action.name == "click" and args.get("button") == "right":
+        return f"Clic droit sur {element_name(element)}"
+    if action.name == "press":
+        where = f" dans {element_name(element)}" if "ref" in args else ""
+        return f"Touche {q(key_label(args['key']))}{where}"
+    if action.name == "hover":
+        return f"Survol {du(element_name(element))}"
+    if action.name == "scroll":
+        if "ref" in args:
+            return f"Défilement {jusqua(element_name(element))}"
+        return "Défilement jusqu'en bas de la page" if args["to"] == "bottom" else "Retour en haut de la page"
+    if action.name == "upload":
+        return f"Fichier {q(args['file'])} joint dans {element_name(element)}"
+    if action.name == "drag":
+        return f"Glisser-déposer {du(element_name(element))} sur {element_name(target)}"
+    if action.name == "switch_tab":
+        return f"Passage à l'onglet n°{args['index']}"
     if action.name == "goto":
         return f"Ouverture de {args['url']}"
     if action.name == "cookies":
@@ -138,6 +157,22 @@ def action_label(action: Action | None, element: Element | None = None) -> str:
 def action_speech(action: Action, element: Element | None = None, number: int = 0) -> str:
     """Ce qu'Alfred annonce avant d'agir."""
     args = action.args
+    if action.name == "click" and args.get("double"):
+        return f"Je double-clique sur {element_name(element)}."
+    if action.name == "click" and args.get("button") == "right":
+        return f"Je fais un clic droit sur {element_name(element)}."
+    if action.name == "press":
+        return f"J'appuie sur la touche {key_label(args['key'])}."
+    if action.name == "hover":
+        return f"Je survole {element_name(element)}."
+    if action.name == "scroll":
+        return "Je fais défiler la page." if args.get("to") != "top" else "Je remonte en haut de la page."
+    if action.name == "upload":
+        return f"Je joins le fichier {q(args['file'])}."
+    if action.name == "drag":
+        return f"Je glisse {element_name(element)} pour le déposer."
+    if action.name == "switch_tab":
+        return f"Je passe sur l'onglet {args['index']}."
     if action.name == "goto":
         return "J'ouvre la page du cas de test." if number == 1 else "J'ouvre une nouvelle page."
     if action.name == "cookies":
@@ -196,6 +231,8 @@ def step_speech(step: Step) -> str | None:
         return f"La vérification a échoué. {result.detail}"
     if not result.ok:
         return "L'action n'a pas abouti. Je cherche une autre solution."
+    if result.opened_tab:
+        return "Un nouvel onglet s'est ouvert : je continue dedans."
     if result.dialog is not None:  # fenêtre JavaScript ouverte par l'action
         answer = "OK" if result.dialog["accepted"] else "Annuler"
         return _cut(f"Une fenêtre affichait {q(' '.join(str(result.dialog['message']).split()))}. J'ai répondu {answer}.")
