@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 ENV_KEY = "ALFRED_MAITRE"
+CREATEUR = "Smail Zaich"  # auteur du projet (voir le fichier LICENSE)
 VOICE_KEY = "ALFRED_VOIX"  # nom d'une voix du Mac, ou « off » pour la couper
 NAME_PATTERN = re.compile(r"[^\W\d_](?:[\w' .-]{0,38}[^\W\d_])?")  # lettres, espaces, apostrophes, traits d'union
 
@@ -61,6 +62,15 @@ def salutation(nom: str | None, maintenant: datetime | None = None) -> str:
     if nom:
         return f"{mot} {nom}. Ici Alfred, votre assistant de test. Quel cas de test dois-je exécuter ?"
     return f"{mot}. Je suis Alfred, votre assistant de test. Comment dois-je vous appeler ?"
+
+
+def identite(nom: str | None) -> str:
+    """Ce qu'Alfred répond à « qui es-tu ? », sans IA : la même réponse, avec ou sans clé d'API."""
+    createur = nom is not None and nom.split()[0].lower() == CREATEUR.split()[0].lower()
+    auteur = "que vous avez conçu" if createur else f"conçu par {CREATEUR}"
+    return (f"Je suis Alfred, le majordome de l'agent de test {auteur}. Je lance vos cas de test dans un vrai navigateur, "
+            "je vous commente chaque étape, puis je vous remets le verdict, le rapport et les tests automatisés : pytest, "
+            "Robot Framework et Gherkin. Posez-moi vos questions, par exemple : pourquoi le dernier test a échoué ?")
 
 
 def choisir_voix(liste: str) -> str | None:
