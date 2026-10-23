@@ -1,0 +1,8 @@
+[
+  {"action": "fill", "target": "#email", "args": {"text": "lecteur@exemple.fr"}, "reason": "Étape 1 : adresse e-mail"},
+  {"action": "click", "target": "#conditions", "reason": "Étape 2 : cocher la case"},
+  {"action": "check_state", "target": "#conditions", "args": {"state": "checked"}, "reason": "Résultat attendu : case cochée"},
+  {"action": "click", "target": "[data-test=\"inscrire\"]", "reason": "Étape 3 : envoyer l'inscription"},
+  {"action": "check_text", "args": {"text": "Inscription enregistrée"}, "reason": "Résultat attendu : message de confirmation"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Inscription enregistrée. Le bandeau de cookies qui couvrait la page a été accepté par le programme, sans IA."}}
+]

@@ -99,6 +99,7 @@ def script_filename(run: RunResult) -> str:
 def generate_script(run: RunResult) -> str:
     """Construit le code du test à partir des étapes réussies."""
     lines: list[str] = []
+    banners: list[str] = []  # bandeaux de cookies déjà pris en charge
     for step in run.steps:
         action, result = step.action, step.result
         if action is None or not result.ok:
@@ -108,6 +109,15 @@ def generate_script(run: RunResult) -> str:
             lines += _dialog_code(result.dialog)
         if action.name == "goto":
             lines.append(f"page.goto({args['url']!r})")
+        elif action.name == "cookies":
+            # Playwright accepte le bandeau dès qu'il couvre la page, avant l'action ou la vérification qu'il gênerait
+            if args["playwright"] not in banners:
+                banners.append(args["playwright"])
+                name = "bandeau_cookies" if len(banners) == 1 else f"bandeau_cookies_{len(banners)}"
+                where = f" ({args['outil']})" if args["outil"] else " du site"
+                lines += [f"# Bandeau de cookies{where} : accepté s'il s'affiche, comme pendant l'exécution de l'agent",
+                          f"{name} = {args['playwright']}.first",
+                          f"page.add_locator_handler({name}, lambda: {name}.click())"]
         elif action.name == "click":
             lines.append(f"{locator_code(result.element)}.click()")
         elif action.name == "fill":

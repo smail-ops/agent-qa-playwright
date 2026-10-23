@@ -105,6 +105,8 @@ def _action_line(action, result) -> str | None:
     args = action.args
     if action.name == "goto":
         return f"Ouvrir {args['url']}"
+    if action.name == "cookies":
+        return f"Accepter le bandeau de cookies ({_quoted(args['bouton'])})"
     if action.name == "wait":
         if "text" in args:
             return f"Attendre l'affichage de {_quoted(args['text'])} ({args['seconds']} s au plus)"

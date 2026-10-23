@@ -47,7 +47,7 @@ Ce sont de vrais sites, partagés par des milliers de testeurs. Quelques aléas 
 
 | Site | Ce qui peut arriver |
 |---|---|
-| Automation Exercise | Depuis l'Europe, une fenêtre de consentement aux cookies s'affiche à chaque navigateur neuf : chaque cas commence par l'accepter. Une publicité plein écran de Google (l'adresse finit alors par #google_vignette) peut couvrir la page après un clic sur un lien. Un filtre anti-robot répond parfois « Please wait while your request is being verified... » à la place du site. |
+| Automation Exercise | Depuis l'Europe, une fenêtre de consentement aux cookies s'affiche à chaque navigateur neuf : chaque cas commence par l'accepter. Depuis la version 0.7, le programme l'accepte avant l'agent, sans IA (étape « cookies » du rapport). Une publicité plein écran de Google (l'adresse finit alors par #google_vignette) peut couvrir la page après un clic sur un lien. Un filtre anti-robot répond parfois « Please wait while your request is being verified... » à la place du site. |
 | ParaBank | La base est commune à tous les visiteurs. Si le compte john/demo ne fonctionne plus, la page Admin du site propose « Initialize », qui remet les données de démonstration. |
 | OrangeHRM | La démo est lente et ses données changent sans cesse. CT-26 ajoute un employé « Alfred Campagne » à chaque exécution. |
 | The Internet | Le site peut mettre quelques secondes à répondre au premier appel. |
