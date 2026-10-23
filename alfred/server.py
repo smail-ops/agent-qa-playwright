@@ -2,7 +2,7 @@
 
 Routes :
     GET  /                              la page d'Alfred
-    GET  /api/status                    moteurs disponibles, mission en cours, maître et salutation
+    GET  /api/status                    moteurs disponibles, mission en cours, maître, salutation et présentation d'Alfred
     POST /api/maitre                    enregistre le prénom du maître dans le .env de cet ordinateur
     GET  /api/cases                     cas de test du dossier cas_de_test/
     POST /api/cases                     enregistre un cas de test écrit dans la page
@@ -187,6 +187,7 @@ class AlfredServer(ThreadingHTTPServer):
             "max_steps": self.missions.max_steps,
             "maitre": {"nom": nom, "suggestion": maitre.suggestion(), "ordinateur": socket.gethostname()},
             "salutation": maitre.salutation(nom),
+            "identite": maitre.identite(nom),
         }
 
 
@@ -532,7 +533,7 @@ class AlfredHandler(BaseHTTPRequestHandler):
             nom = maitre.enregistrer(self._body().get("nom", ""), self.server.env_path)
         except (ValueError, TypeError, OSError) as exc:
             return self._json(400, {"error": str(exc)})
-        self._json(200, {"nom": nom, "salutation": maitre.salutation(nom)})
+        self._json(200, {"nom": nom, "salutation": maitre.salutation(nom), "identite": maitre.identite(nom)})
 
     # --- Réponses ----------------------------------------------------------------
 

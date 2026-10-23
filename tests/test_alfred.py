@@ -319,6 +319,11 @@ def test_interface_comprend_les_commandes_vocales(alfred, pw_page):
         "montre-moi le test Robot": {"type": "ouvrir", "fichier": "robot"},
         "ouvre le scénario Gherkin": {"type": "ouvrir", "fichier": "gherkin"},
         "bonsoir": {"type": "saluer"},
+        "Alfred, qui es-tu ?": {"type": "presenter"},
+        "présente-toi": {"type": "presenter"},
+        "comment tu t'appelles ?": {"type": "presenter"},
+        "qui t'a créé ?": {"type": "presenter"},
+        "qui t'a créé ce matin": {"type": "inconnu"},  # une autre question : elle part au modèle
         "fais-moi un café": {"type": "inconnu"},
     }
     for phrase, attendu in phrases.items():
@@ -369,6 +374,14 @@ def test_salutation():
     assert maitre.salutation(None, matin) == "Bonjour. Je suis Alfred, votre assistant de test. Comment dois-je vous appeler ?"
 
 
+def test_alfred_se_presente():
+    """« Qui es-tu ? » : la réponse ne dépend pas de l'IA. Au créateur du projet, Alfred le dit autrement."""
+    assert maitre.identite(None).startswith("Je suis Alfred, le majordome de l'agent de test conçu par Smail Zaich.")
+    assert "conçu par Smail Zaich" in maitre.identite("Léa")
+    assert maitre.identite("Smail").startswith("Je suis Alfred, le majordome de l'agent de test que vous avez conçu.")
+    assert all(len(maitre.identite(nom)) <= 450 for nom in (None, "Smail"))  # lue à voix haute, comme une réponse du modèle
+
+
 def test_enregistrer_le_maitre(tmp_path, monkeypatch):
     """Le prénom va dans le .env de cet ordinateur, sans toucher à la clé d'API."""
     monkeypatch.delenv("ALFRED_MAITRE", raising=False)
@@ -407,8 +420,10 @@ def test_api_du_maitre(alfred):
     status, data = request(alfred, "GET", "/api/status")
     assert data["maitre"]["nom"] is None and data["salutation"].endswith("Comment dois-je vous appeler ?")
     assert data["maitre"]["ordinateur"]
+    assert "conçu par Smail Zaich" in data["identite"]
     status, data = request(alfred, "POST", "/api/maitre", {"nom": "Smail"})
     assert status == 200 and data["nom"] == "Smail" and "Smail. Ici Alfred" in data["salutation"]
+    assert "que vous avez conçu" in data["identite"]
     assert "ALFRED_MAITRE=Smail" in alfred.env_path.read_text(encoding="utf-8")
     assert request(alfred, "GET", "/api/status")[1]["maitre"]["nom"] == "Smail"
     assert request(alfred, "POST", "/api/maitre", {"nom": "Smail\nX=1"})[0] == 400
@@ -706,6 +721,18 @@ def test_interface_conversation_et_cas_dicte(alfred, pw_page, monkeypatch, demo_
     expect(pw_page.locator(".verdict-mot")).to_have_text("Réussi", timeout=30_000)
     assert pw_page.evaluate("Alfred.etat.historique.length") == 2
     assert errors == []
+
+
+def test_interface_alfred_se_presente_sans_ia(alfred, pw_page, monkeypatch):
+    """« Qui es-tu ? » reçoit une réponse même sans clé d'API : aucune requête ne part au modèle."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    pw_page.goto(alfred.url)
+    expect(pw_page.locator(".carte-cas")).to_have_count(3)
+    pw_page.fill("#dialogue-texte", "Alfred, qui es-tu ?")
+    pw_page.press("#dialogue-texte", "Enter")
+    expect(pw_page.locator("#voix")).to_contain_text("Je suis Alfred, le majordome de l'agent de test")
+    assert pw_page.evaluate("Alfred.etat.historique.length") == 0  # rien n'est parti au modèle
 
 
 def test_commandes_simples_et_phrases_libres(alfred, pw_page):
