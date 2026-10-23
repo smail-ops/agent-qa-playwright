@@ -19,6 +19,7 @@ et demander l'arrêt grâce à stop_event.
 
 from __future__ import annotations
 
+import shutil
 import threading
 import time
 from collections.abc import Callable
@@ -31,7 +32,7 @@ from playwright.sync_api import Page
 
 from . import cookies
 from .actions import Action, parse_action
-from .browser import ActionResult, Observation, execute, observe
+from .browser import DATA_DIR, ActionResult, Observation, execute, observe, open_closed_shadows
 from .memoire import Memory, replay_action
 from .prompts import SYSTEM_PROMPT, VISION_PROMPT, build_user_message
 from .providers import Provider, ProviderError, RateLimitError
@@ -77,6 +78,7 @@ class RunResult:
     browser: str = ""  # navigateur utilisé, repris dans la fiche d'anomalie
     anomaly_path: Path | None = None  # fiche d'anomalie (test en échec ou bloqué)
     diagnosis: dict | None = None  # analyse de l'échec par le modèle : nature, gravité, explication
+    closed_shadow: bool = False  # la page avait des composants web fermés, ouverts pour le test
 
     @property
     def checks(self) -> list[Step]:
@@ -134,6 +136,8 @@ class Agent:
         self._cookies_on = accept_cookies
         self.system_prompt = SYSTEM_PROMPT + (VISION_PROMPT if vision else "")
         self.model_calls = 0
+        self.page: Page | None = None  # onglet où agit l'agent : il change quand un clic ouvre un nouvel onglet
+        self._closed_shadows = 0
 
     def _emit(self, kind: str, **data) -> None:
         if self.on_event is not None:
@@ -177,10 +181,22 @@ class Agent:
                 if self._stop_requested():
                     raise
 
+    def _observe(self, page: Page) -> Observation:
+        observation = observe(page)
+        self._closed_shadows = max(self._closed_shadows, observation.closed_shadows)
+        return observation
+
     def _do(self, page: Page, action: Action, observation: Observation | None, out_dir: Path, number: int, raw: str = "",
             source: str = "") -> Step:
         self._emit("phase", phase="act", number=number, action=action, observation=observation)
         result = execute(page, action, observation)
+        if result.page is not None:  # nouvel onglet, ou retour à un autre onglet : l'agent continue là
+            self.page = page = result.page
+        if action.name == "upload" and result.ok:  # le fichier accompagne les tests générés, qui le joignent aussi
+            try:
+                shutil.copyfile(DATA_DIR / action.args["file"], out_dir / action.args["file"])
+            except OSError:
+                pass
         screenshot = f"captures/etape-{number:02d}.png"
         try:
             page.screenshot(path=str(out_dir / screenshot))
@@ -215,15 +231,15 @@ class Agent:
         for entry in plan["steps"]:
             if self._stop_requested():
                 return "BLOQUE", STOPPED_SUMMARY, None
-            self._cookies(page, steps, out_dir)
+            self._cookies(self.page, steps, out_dir)
             number = len(steps) + 1
             self._emit("phase", phase="observe", number=number)
-            observation = observe(page)
+            observation = self._observe(self.page)
             action, problem = replay_action(entry, observation)
             if action is None:
                 self._emit("heal", number=number, reason=problem)
                 return None, "", number
-            step = self._add(steps, self._do(page, action, observation, out_dir, number, source="memoire"))
+            step = self._add(steps, self._do(self.page, action, observation, out_dir, number, source="memoire"))
             if not step.result.ok:  # l'action n'a pas abouti : le site a changé
                 self._emit("heal", number=number, reason=step.result.detail)
                 return None, "", number
@@ -232,7 +248,8 @@ class Agent:
         return "PASS", MEMORY_SUMMARY, None
 
     def run(self, page: Page, case: TestCase, out_dir: Path) -> RunResult:
-        self.model_calls = 0
+        self.model_calls, self.page, self._closed_shadows = 0, page, 0
+        open_closed_shadows(page.context)  # avant toute page : les composants fermés seront créés ouverts
         out_dir = Path(out_dir)
         (out_dir / "captures").mkdir(parents=True, exist_ok=True)
         started_at, start = datetime.now(), time.monotonic()
@@ -243,12 +260,12 @@ class Agent:
         self._add(steps, self._do(page, opening, None, out_dir, number=1))
         # Le bandeau de cookies s'affiche souvent juste après la page : on l'attend s'il y a un outil de consentement
         self._cookies_on = self.accept_cookies and cookies.wanted(case.text)
-        self._cookies(page, steps, out_dir, cookies.WAIT_S)
+        self._cookies(self.page, steps, out_dir, cookies.WAIT_S)
 
         status, summary, errors, healed_at = None, "", 0, None
         plan = self.memory.load(case) if self.memory is not None else None
         if plan is not None:
-            status, summary, healed_at = self._replay(page, plan, steps, out_dir)
+            status, summary, healed_at = self._replay(self.page, plan, steps, out_dir)
         replayed = sum(1 for s in steps if s.source == "memoire")
 
         while status is None:
@@ -259,12 +276,12 @@ class Agent:
             if len(steps) - free >= self.max_steps:  # les étapes faites sans le modèle ne comptent pas
                 status, summary = "BLOQUE", f"Nombre maximal d'actions atteint ({self.max_steps})."
                 break
-            self._cookies(page, steps, out_dir)
+            self._cookies(self.page, steps, out_dir)
             self._emit("phase", phase="observe", number=len(steps) + 1)
-            observation = observe(page)
+            observation = self._observe(self.page)
             if self.vision:  # le modèle voit la page comme un testeur : capture JPEG, légère
                 try:
-                    observation.screenshot = page.screenshot(type="jpeg", quality=55)
+                    observation.screenshot = self.page.screenshot(type="jpeg", quality=55)
                 except PlaywrightError:
                     observation.screenshot = None
             user_message = build_user_message(case, steps, observation)
@@ -287,7 +304,7 @@ class Agent:
                 if action.name == "finish":
                     status, summary = action.args["status"], action.args.get("summary", "")
                     break
-                step = self._add(steps, self._do(page, action, observation, out_dir, number=len(steps) + 1, raw=raw))
+                step = self._add(steps, self._do(self.page, action, observation, out_dir, number=len(steps) + 1, raw=raw))
                 errors = 0 if step.result.ok else errors + 1
 
             if errors >= self.max_errors:
@@ -299,7 +316,7 @@ class Agent:
         final_page = None
         if status != "PASS":  # la page telle qu'elle est restée, pour comprendre l'échec
             try:
-                final_page = observe(page)
+                final_page = self._observe(self.page)
             except PlaywrightError:
                 final_page = None
         saved = False
@@ -326,4 +343,5 @@ class Agent:
             memory_saved=saved,
             final_page=final_page,
             vision=self.vision,
+            closed_shadow=self._closed_shadows > 0,
         )

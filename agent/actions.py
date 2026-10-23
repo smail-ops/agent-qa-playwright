@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 # Nom de chaque action -> arguments obligatoires et leur type
@@ -29,6 +30,12 @@ ACTIONS: dict[str, dict[str, type]] = {
     "check_visual": {"expected": str, "seen": str, "ok": bool},
     "wait": {"seconds": int},
     "dialog": {"accept": bool},
+    "press": {"key": str},
+    "hover": {"ref": int},
+    "scroll": {},
+    "upload": {"ref": int, "file": str},
+    "drag": {"ref": int, "to": int},
+    "switch_tab": {"index": int},
     "finish": {"status": str},
 }
 
@@ -48,13 +55,89 @@ _STATE_ALIASES = {"actif": "enabled", "activé": "enabled", "grisé": "disabled"
 # négative : « le message d'erreur ne s'affiche pas », « l'URL ne contient pas ».
 # « regex » : la valeur attendue est un motif (un code généré, une date), pas un texte exact.
 # « text » de wait : le texte dont on attend l'affichage ; « text » de dialog : la saisie d'une fenêtre prompt.
+# « double » et « button » de click : double-clic, clic droit. « ref » de press : la touche est tapée dans cet élément.
+# scroll : « ref » (jusqu'à un élément) ou « to » (bottom, top).
 OPTIONAL_ARGS: dict[str, dict[str, type]] = {
     "check_text": {"absent": bool},
     "check_url": {"absent": bool},
     "check_value": {"regex": bool},
     "wait": {"text": str},
     "dialog": {"text": str},
+    "click": {"double": bool, "button": str},
+    "press": {"ref": int},
+    "scroll": {"ref": int, "to": str},
 }
+
+# Touches du clavier (noms de Playwright), et leurs noms en français : « Entrée », « Échap »...
+KEYS = ("Enter", "Escape", "Tab", "Backspace", "Delete", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+        "Home", "End", "PageUp", "PageDown") + tuple(f"F{n}" for n in range(1, 13))
+KEY_LABELS = {"Enter": "Entrée", "Escape": "Échap", "Tab": "Tab", "Backspace": "Retour arrière", "Delete": "Suppr",
+              "Space": "Espace", "ArrowUp": "Flèche haut", "ArrowDown": "Flèche bas", "ArrowLeft": "Flèche gauche",
+              "ArrowRight": "Flèche droite", "Home": "Début", "End": "Fin", "PageUp": "Page précédente",
+              "PageDown": "Page suivante", "Control": "Ctrl", "Shift": "Maj", "Alt": "Alt", "Meta": "Cmd"}
+_KEY_ALIASES = {
+    "entree": "Enter", "return": "Enter", "retour": "Enter", "echap": "Escape", "esc": "Escape", "echappement": "Escape",
+    "tabulation": "Tab", "espace": "Space", "retour arriere": "Backspace", "effacement": "Backspace", "suppr": "Delete",
+    "supprimer": "Delete", "del": "Delete", "fleche haut": "ArrowUp", "fleche bas": "ArrowDown", "fleche gauche": "ArrowLeft",
+    "fleche droite": "ArrowRight", "haut": "ArrowUp", "bas": "ArrowDown", "gauche": "ArrowLeft", "droite": "ArrowRight",
+    "up": "ArrowUp", "down": "ArrowDown", "left": "ArrowLeft", "right": "ArrowRight", "debut": "Home", "fin": "End",
+    "page precedente": "PageUp", "page suivante": "PageDown",
+}
+_MODIFIERS = {"control": "Control", "ctrl": "Control", "shift": "Shift", "maj": "Shift", "alt": "Alt", "meta": "Meta",
+              "cmd": "Meta", "command": "Meta", "commande": "Meta"}
+
+
+def normalize_key(text: str) -> str:
+    """Nom de touche pour Playwright : « entrée » donne Enter, « ctrl+a » donne Control+A. Lève ValueError sinon."""
+    parts = [part.strip() for part in str(text).replace(" + ", "+").split("+")] if str(text).strip() != "+" else ["+"]
+    if not parts or any(not part for part in parts):
+        raise ValueError(f"touche « {text} » inconnue")
+    *modifiers, key = parts
+    names = []
+    for modifier in modifiers:
+        plain = unicodedata.normalize("NFKD", modifier).encode("ascii", "ignore").decode().lower()
+        if plain not in _MODIFIERS:
+            raise ValueError(f"touche « {text} » inconnue")
+        names.append(_MODIFIERS[plain])
+    plain = " ".join(unicodedata.normalize("NFKD", key).encode("ascii", "ignore").decode().lower().split())
+    known = {k.lower(): k for k in KEYS}
+    if plain in known:
+        names.append(known[plain])
+    elif plain in _KEY_ALIASES:
+        names.append(_KEY_ALIASES[plain])
+    elif len(key) == 1 and key.isprintable() and not key.isspace():
+        names.append(key.upper() if modifiers and key.isalpha() else key)
+    else:
+        raise ValueError(f"touche « {text} » inconnue (par exemple : Enter, Escape, Tab, ArrowDown, Control+A)")
+    return "+".join(names)
+
+
+def key_label(key: str) -> str:
+    """Nom d'une touche, en français : « Entrée », « Ctrl+A »."""
+    return "+".join(KEY_LABELS.get(part, part) for part in key.split("+"))
+
+
+def au(target: str) -> str:
+    """« à » devant un nom d'élément, contracté : au champ, aux options, à la case, à l'onglet."""
+    if target.startswith("le "):
+        return "au " + target[3:]
+    if target.startswith("les "):
+        return "aux " + target[4:]
+    return "à " + target
+
+
+def du(target: str) -> str:
+    """« de » devant un nom d'élément, contracté : du bouton, des options, de la case, de l'onglet."""
+    if target.startswith("le "):
+        return "du " + target[3:]
+    if target.startswith("les "):
+        return "des " + target[4:]
+    return "de " + target
+
+
+def jusqua(target: str) -> str:
+    """« jusqu'à » devant un nom d'élément, contracté : jusqu'au bouton, jusqu'à la liste."""
+    return "jusqu'" + au(target)
 
 STATUSES = ("PASS", "FAIL", "BLOQUE")
 _STATUS_ALIASES = {"BLOQUÉ": "BLOQUE", "BLOCKED": "BLOQUE", "PASSED": "PASS", "FAILED": "FAIL", "OK": "PASS", "KO": "FAIL"}
@@ -165,6 +248,37 @@ def parse_action(raw: str) -> Action:
             raise ValueError("argument « text » vide pour l'action wait")
     if name == "dialog" and not clean_args["accept"]:
         clean_args.pop("text", None)  # une saisie n'a de sens que si l'on répond OK
+    if name == "press":
+        clean_args["key"] = normalize_key(clean_args["key"])
+    if name == "click":
+        button = clean_args.pop("button", "left").strip().lower()
+        button = {"gauche": "left", "droit": "right", "droite": "right"}.get(button, button)
+        if button not in ("left", "right"):
+            raise ValueError(f"bouton « {button} » invalide pour l'action click (left ou right)")
+        if not clean_args.get("double"):
+            clean_args.pop("double", None)
+        elif button == "right":
+            raise ValueError("un double-clic se fait avec le bouton gauche")
+        if button == "right":
+            clean_args["button"] = "right"
+    if name == "scroll":
+        if "ref" in clean_args:
+            clean_args.pop("to", None)
+        else:
+            to = clean_args.get("to", "").strip().lower()
+            to = {"bas": "bottom", "fin": "bottom", "end": "bottom", "haut": "top", "debut": "top", "début": "top"}.get(to, to)
+            if to not in ("bottom", "top"):
+                raise ValueError("indique « ref » (faire défiler jusqu'à un élément) ou « to » : bottom ou top")
+            clean_args["to"] = to
+    if name == "upload":
+        file = clean_args["file"].strip()
+        if not re.fullmatch(r"[^/\\:]+\.\w+", file) or file.startswith("."):
+            raise ValueError("argument « file » : un nom de fichier du dossier donnees_de_test, sans chemin (facture.pdf)")
+        clean_args["file"] = file
+    if name == "drag" and clean_args["ref"] == clean_args["to"]:
+        raise ValueError("arguments invalides pour l'action drag : « ref » et « to » doivent être deux éléments différents")
+    if name == "switch_tab" and clean_args["index"] < 1:
+        raise ValueError("argument « index » invalide pour l'action switch_tab (1 pour le premier onglet)")
 
     if name == "finish":
         status = clean_args["status"].strip().upper()

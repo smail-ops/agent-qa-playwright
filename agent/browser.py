@@ -22,13 +22,16 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, expect
 
-from .actions import STATE_LABELS, Action
+from .actions import STATE_LABELS, Action, key_label
 
 REF_ATTR = "data-agent-ref"  # attribut temporaire posé sur chaque élément observé
+DATA_DIR = Path(__file__).resolve().parent.parent / "donnees_de_test"  # fichiers que l'agent peut joindre (upload)
+POPUP_WAIT_MS = 300  # après un clic, délai laissé à un nouvel onglet pour s'ouvrir
 CHECK_TIMEOUT_MS = 3000  # délai laissé à la page pour atteindre l'état attendu par une vérification
 MAX_FRAMES = 6  # cadres observés au plus : au-delà, ce sont surtout des publicités et des traceurs
 MAX_FRAME_DEPTH = 3
@@ -36,6 +39,17 @@ MAX_FRAME_DEPTH = 3
 _AD_FRAMES = re.compile(r"doubleclick|googlesyndication|googleadservices|adservice|amazon-adsystem|criteo|taboola|"
                         r"outbrain|adnxs|facebook\.com/plugins", re.IGNORECASE)
 _AD_FRAME_NAMES = re.compile(r"^(aswift_|google_ads_iframe|google_esf|__\w+Locator$)")  # cadres de Google AdSense, du consentement
+
+# Composants web fermés (Shadow DOM « closed ») : ce script, exécuté avant ceux de la page, les crée ouverts.
+# Le composant fonctionne de la même façon, mais l'agent et Playwright peuvent y entrer. Le nombre de composants
+# ouverts ainsi est noté, pour le rapport et pour les tests générés, qui font de même.
+OPEN_SHADOW_JS = (
+    "(() => { const original = Element.prototype.attachShadow; if (original.agentOpen) return; "
+    "const ouvrir = function (options) { if (options && options.mode === 'closed') { "
+    "window.agentClosedShadows = (window.agentClosedShadows || 0) + 1; "
+    "return original.call(this, Object.assign({}, options, {mode: 'open'})); } "
+    "return original.call(this, options); }; ouvrir.agentOpen = true; Element.prototype.attachShadow = ouvrir; })();"
+)
 
 # Script exécuté dans la page (ou dans un cadre) pour lister les éléments interactifs.
 _OBSERVE_JS = r"""
@@ -186,6 +200,7 @@ _OBSERVE_JS = r"""
       value: clean(filled).slice(0, 80) || null,
       editable: editable || null,
       field: field || null,
+      draggable: el.getAttribute('draggable') === 'true' || null,
     };
 
     // Sélecteur lisible, du plus robuste au moins robuste
@@ -274,7 +289,9 @@ _OBSERVE_JS = r"""
   const CANDIDATES = 'a[href], button, input:not([type=hidden]), select, textarea, ' +
     '[role=button], [role=link], [role=checkbox], [role=radio], [role=switch], [role=tab], [role=option], ' +
     '[role=menuitem], [role=combobox], [aria-haspopup]:not([aria-haspopup=false]), [onclick], ' +
-    '[contenteditable=""], [contenteditable=true], [tabindex]:not([tabindex="-1"])';
+    '[contenteditable=""], [contenteditable=true], [tabindex]:not([tabindex="-1"]), ' +
+    // Glisser-déposer : l'élément à glisser, et les zones où le déposer
+    '[draggable=true], [aria-dropeffect], [class*="dropzone" i], [class*="droppable" i], [id*="dropzone" i], [id*="droppable" i]';
   for (const {root, hosts} of roots) root.querySelectorAll(CANDIDATES).forEach((el) => add(el, root, hosts));
 
   // Éléments cliquables sans rôle ni attribut (options d'une liste « maison ») : le site leur donne
@@ -293,7 +310,8 @@ _OBSERVE_JS = r"""
   }
 
   const shadowTexts = roots.slice(1).map(({root}) => shownText(root)).filter(Boolean);
-  return {elements, text: clean(document.body ? document.body.innerText : ''), shadow_text: shadowTexts.join(' ')};
+  return {elements, text: clean(document.body ? document.body.innerText : ''), shadow_text: shadowTexts.join(' '),
+          closed: window.agentClosedShadows || 0};
 }
 """
 
@@ -366,6 +384,10 @@ class Element:
     def editable(self) -> bool:
         """Zone de texte riche (contenteditable), comme le corps d'un éditeur TinyMCE."""
         return bool((self.attrs or {}).get("editable"))
+
+    def draggable(self) -> bool:
+        """Élément à glisser-déposer au sens de HTML5 (attribut draggable)."""
+        return bool((self.attrs or {}).get("draggable"))
 
     def is_field(self) -> bool:
         """Champ à remplir ou à choisir : saisie, liste (native ou « maison »), zone de texte riche."""
@@ -446,13 +468,20 @@ class Observation:
     screenshot: bytes | None = None  # capture JPEG envoyée au modèle quand la vision est activée
     frame_texts: list = field(default_factory=list)  # (nom du cadre, texte visible) de chaque cadre observé
     frames: dict = field(default_factory=dict, repr=False, compare=False)  # ref -> cadre Playwright qui le contient
+    tabs: list = field(default_factory=list)  # titres des onglets ouverts
+    tab: int = 1  # onglet observé, à partir de 1
+    closed_shadows: int = 0  # composants web fermés, ouverts pour le test
 
     def find(self, ref: int) -> Element | None:
         return next((e for e in self.elements if e.ref == ref), None)
 
     def to_prompt(self, max_text: int = 1500) -> str:
         text = self.text if len(self.text) <= max_text else self.text[:max_text] + " [...]"
-        lines = [f"URL : {self.url}", f"Titre : {self.title}", "Texte visible (extrait) :", text or "(vide)", ""]
+        lines = [f"URL : {self.url}", f"Titre : {self.title}"]
+        if len(self.tabs) > 1:
+            lines.append("Onglets ouverts : " + " ; ".join(f"{index}. {title}" + (" (actif)" if index == self.tab else "")
+                                                          for index, title in enumerate(self.tabs, 1)))
+        lines += ["Texte visible (extrait) :", text or "(vide)", ""]
         for label, frame_text in self.frame_texts:
             short = frame_text if len(frame_text) <= 600 else frame_text[:600] + " [...]"
             lines += [f"Texte du cadre « {label} » :", short, ""]
@@ -476,6 +505,9 @@ class ActionResult:
     frame: list | None = None  # cadre où le texte attendu a été trouvé (vérification ou attente)
     in_shadow: bool = False  # texte trouvé dans un Shadow DOM, que document.body.innerText ne contient pas
     dialog: dict | None = None  # fenêtre JavaScript ouverte par l'action : type, message, réponse donnée
+    target: Element | None = None  # glisser-déposer : l'élément où l'on dépose
+    page: object | None = field(default=None, repr=False, compare=False)  # onglet où continuer, s'il a changé
+    opened_tab: bool = False  # l'action a ouvert un nouvel onglet
 
 
 class DialogWatcher:
@@ -501,6 +533,48 @@ class DialogWatcher:
             pass  # page fermée entre-temps
         self.seen.append({"type": dialog.type, "message": dialog.message, "accepted": accepted, "text": text})
         self.accept, self.text = True, None  # la consigne ne vaut que pour une fenêtre
+
+
+class TabWatcher:
+    """Onglets ouverts pendant le test (lien target=_blank, window.open), dans l'ordre."""
+
+    def __init__(self) -> None:
+        self.opened: list = []
+
+    def handle(self, page) -> None:
+        self.opened.append(page)
+
+
+def tabs(context) -> TabWatcher:
+    """Le suivi des nouveaux onglets du navigateur, branché à la première demande."""
+    watcher = getattr(context, "_agent_tabs", None)
+    if watcher is None:
+        watcher = TabWatcher()
+        context.on("page", watcher.handle)
+        context._agent_tabs = watcher
+    return watcher
+
+
+def open_closed_shadows(context) -> None:
+    """Les composants web fermés seront créés ouverts, dans chaque page et chaque onglet (voir OPEN_SHADOW_JS)."""
+    if not getattr(context, "_agent_open_shadows", False):
+        context.add_init_script(OPEN_SHADOW_JS)
+        context._agent_open_shadows = True
+
+
+def _new_tab(page: Page, watcher: TabWatcher, before: int):
+    """Le nouvel onglet ouvert par l'action, s'il y en a un (il s'ouvre quelques dizaines de millisecondes après le clic)."""
+    deadline = time.monotonic() + POPUP_WAIT_MS / 1000
+    while len(watcher.opened) <= before and time.monotonic() < deadline:
+        page.wait_for_timeout(25)
+    if len(watcher.opened) <= before:
+        return None
+    new = watcher.opened[-1]
+    try:
+        new.wait_for_load_state("load", timeout=10000)
+    except PlaywrightError:
+        pass
+    return new
 
 
 def dialogs(page: Page) -> DialogWatcher:
@@ -568,8 +642,16 @@ def observe(page: Page, max_elements: int = 80) -> Observation:
             frames[element.ref] = frame
         if _joined(found):
             frame_texts.append((path[-1]["label"], _joined(found)))
+    pages = page.context.pages
+    titles = []
+    for other in pages:
+        try:
+            titles.append(other.title() or other.url)
+        except PlaywrightError:
+            titles.append(other.url)
     return Observation(url=page.url, title=page.title(), text=_joined(data), elements=elements,
-                       frame_texts=frame_texts, frames=frames)
+                       frame_texts=frame_texts, frames=frames, tabs=titles,
+                       tab=pages.index(page) + 1 if page in pages else 1, closed_shadows=data.get("closed", 0))
 
 
 def _short_error(exc: Exception) -> str:
@@ -660,13 +742,18 @@ def execute(page: Page, action: Action, observation: Observation | None, timeout
     Une fenêtre JavaScript ouverte par l'action est notée dans le résultat : le modèle lit son
     message dans l'historique, et les tests générés savent y répondre de la même façon.
     """
-    watcher = dialogs(page)
-    before = len(watcher.seen)
+    watcher, tab_watcher = dialogs(page), tabs(page.context)
+    before, tabs_before = len(watcher.seen), len(tab_watcher.opened)
     result = _run(page, action, observation, timeout_ms, watcher)
     opened = watcher.seen[before:]
     if opened:
         result.dialog = opened[-1]
         result.detail = f"{result.detail} {_dialog_detail(opened[-1])}"
+    if result.ok and action.name in ("click", "press"):  # un lien target=_blank, un window.open : l'agent suit l'onglet
+        new = _new_tab(page, tab_watcher, tabs_before)
+        if new is not None:
+            result.page, result.opened_tab = new, True
+            result.detail = f"{result.detail} Nouvel onglet ouvert : {new.url}"
     return result
 
 
@@ -677,7 +764,8 @@ def _run(page: Page, action: Action, observation: Observation | None, timeout_ms
             page.goto(args["url"], wait_until="load", timeout=15000)
             return ActionResult(True, f"Page ouverte : {page.url}")
 
-        if action.name in ("click", "fill", "select", "check_value", "check_state"):
+        if action.name in ("click", "fill", "select", "check_value", "check_state", "hover", "upload", "drag") \
+                or (action.name in ("press", "scroll") and "ref" in args):
             element = observation.find(args["ref"]) if observation else None
             if element is None:
                 return ActionResult(False, f"Aucun élément [{args['ref']}] sur la page actuelle")
@@ -689,9 +777,44 @@ def _run(page: Page, action: Action, observation: Observation | None, timeout_ms
             if action.name == "check_state":
                 return _check_state(page, locator, element, args["state"], timeout_ms)
             if action.name == "click":
-                locator.click(timeout=timeout_ms)
+                if args.get("double"):
+                    locator.dblclick(timeout=timeout_ms)
+                    verb = "Double-clic sur"
+                elif args.get("button") == "right":
+                    locator.click(button="right", timeout=timeout_ms)
+                    verb = "Clic droit sur"
+                else:
+                    locator.click(timeout=timeout_ms)
+                    verb = "Clic sur"
                 _settle(page)
-                return ActionResult(True, f"Clic sur {element.describe()}", element)
+                return ActionResult(True, f"{verb} {element.describe()}", element)
+            if action.name == "hover":
+                locator.hover(timeout=timeout_ms)
+                page.wait_for_timeout(200)  # le temps qu'un menu s'ouvre
+                return ActionResult(True, f"Survol de {element.describe()}", element)
+            if action.name == "press":
+                locator.press(args["key"], timeout=timeout_ms)
+                _settle(page)
+                return ActionResult(True, f"Touche {key_label(args['key'])} dans {element.describe()}", element)
+            if action.name == "scroll":
+                locator.scroll_into_view_if_needed(timeout=timeout_ms)
+                page.wait_for_timeout(300)  # une liste qui se charge en arrivant à l'écran
+                return ActionResult(True, f"Page défilée jusqu'à {element.describe()}", element)
+            if action.name == "upload":
+                path = DATA_DIR / args["file"]
+                if not path.is_file():
+                    return ActionResult(False, f"Fichier « {args['file']} » introuvable dans le dossier donnees_de_test", element)
+                locator.set_input_files(str(path), timeout=timeout_ms)
+                return ActionResult(True, f"Fichier « {args['file']} » joint : {element.describe()}", element)
+            if action.name == "drag":
+                target = observation.find(args["to"])
+                if target is None:
+                    return ActionResult(False, f"Aucun élément [{args['to']}] sur la page actuelle", element)
+                if observation.frames.get(target.ref) is not observation.frames.get(element.ref):
+                    return ActionResult(False, "Glisser-déposer impossible entre deux cadres différents", element)
+                locator.drag_to(scope.locator(f'[{REF_ATTR}="{target.ref}"]'), timeout=timeout_ms)
+                _settle(page)
+                return ActionResult(True, f"{element.describe()} glissé sur {target.describe()}", element, target=target)
             if action.name == "fill":
                 locator.fill(args["text"], timeout=timeout_ms)
                 return ActionResult(True, f"Champ rempli : {element.describe()}", element)
@@ -699,6 +822,27 @@ def _run(page: Page, action: Action, observation: Observation | None, timeout_ms
             _settle(page)
             # Playwright accepte le libellé ou la valeur : on garde la valeur réelle de l'option
             return ActionResult(True, f"Option « {args['value']} » choisie", element, value=selected[0] if selected else None)
+
+        if action.name == "press":  # sans élément : la touche va à la page (Échap ferme une fenêtre, par exemple)
+            page.keyboard.press(args["key"])
+            _settle(page)
+            return ActionResult(True, f"Touche {key_label(args['key'])}")
+
+        if action.name == "scroll":
+            if args["to"] == "bottom":
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(500)  # une liste qui se charge en bas de page
+                return ActionResult(True, "Page défilée jusqu'en bas")
+            page.evaluate("window.scrollTo(0, 0)")
+            return ActionResult(True, "Page remontée en haut")
+
+        if action.name == "switch_tab":
+            pages = page.context.pages
+            if not 1 <= args["index"] <= len(pages):
+                return ActionResult(False, f"Pas d'onglet n°{args['index']} ({len(pages)} onglet{'s' if len(pages) > 1 else ''} ouvert{'s' if len(pages) > 1 else ''})")
+            target = pages[args["index"] - 1]
+            target.bring_to_front()
+            return ActionResult(True, f"Onglet n°{args['index']} : {target.title() or target.url}", page=target)
 
         if action.name == "dialog":  # consigne pour la prochaine fenêtre JavaScript
             watcher.accept, watcher.text = args["accept"], args.get("text") if args["accept"] else None

@@ -137,7 +137,8 @@ class MissionManager:
             action = data.get("action")
             if action is not None:
                 element = narration.find_element(action, data.get("observation"))
-                payload["label"] = narration.action_label(action, element)
+                target = narration.find_element(action, data.get("observation"), "to")
+                payload["label"] = narration.action_label(action, element, target)
                 payload["say"] = narration.action_speech(action, element, data["number"])
             mission.emit("phase", **payload)
         elif kind == "step":
@@ -159,7 +160,7 @@ class MissionManager:
         return {
             "number": step.number,
             "action": step.action.name if step.action else None,
-            "label": narration.action_label(step.action, element),
+            "label": narration.action_label(step.action, element, step.result.target),
             "reason": step.action.reason if step.action else "",
             "ok": step.result.ok,
             "check": step.result.check,

@@ -26,6 +26,29 @@ from robot.api import logger
 from robot.utils import timestr_to_secs
 
 
+# Touches de Selenium (Press Keys) -> touches de Playwright
+_KEYS = {"ENTER": "Enter", "RETURN": "Enter", "ESCAPE": "Escape", "TAB": "Tab", "BACK_SPACE": "Backspace",
+         "DELETE": "Delete", "SPACE": "Space", "ARROW_UP": "ArrowUp", "ARROW_DOWN": "ArrowDown", "ARROW_LEFT": "ArrowLeft",
+         "ARROW_RIGHT": "ArrowRight", "HOME": "Home", "END": "End", "PAGE_UP": "PageUp", "PAGE_DOWN": "PageDown",
+         "CTRL": "Control", "CONTROL": "Control", "SHIFT": "Shift", "ALT": "Alt", "COMMAND": "Meta", "META": "Meta"}
+
+
+class _Driver:
+    """Le peu du pilote Selenium dont se servent les tests générés : une commande de Chrome (CDP)."""
+
+    def __init__(self, library):
+        self._library = library
+
+    def execute_cdp_cmd(self, command: str, params: dict):
+        if command != "Page.addScriptToEvaluateOnNewDocument":
+            raise AssertionError(f"Commande CDP inattendue : {command}")
+        # Appelée depuis « Evaluate » : Playwright, qui lit la pile d'appels, ne supporte pas l'espace de noms
+        # de Robot. Le script est donc enregistré ici, et posé au prochain chargement (« Reload Page »),
+        # ce qui revient au même : comme avec Chrome, il ne s'exécute qu'au chargement suivant.
+        self._library._init_scripts.append(params["source"])
+        return {"identifier": str(len(self._library._init_scripts))}
+
+
 class SeleniumLibrary:
     ROBOT_LIBRARY_SCOPE = "GLOBAL"
 
@@ -36,6 +59,9 @@ class SeleniumLibrary:
         self._frame = None  # cadre sélectionné (Select Frame), None pour la page
         self._alerts: list[str] = []  # messages des fenêtres JavaScript pas encore traitées par Handle Alert
         self._dom_count = 0
+        self._pages: list = []  # fenêtres (onglets), dans l'ordre d'ouverture
+        self._init_scripts: list[str] = []  # scripts à exécuter avant chaque page (commande CDP)
+        self.driver = _Driver(self)
 
     def open_browser(self, url: str, browser: str = "firefox", options=None):
         # options : préférences de Chrome (OPTIONS_CHROME), sans objet pour le Chromium de Playwright.
@@ -45,8 +71,71 @@ class SeleniumLibrary:
         self._browser = self._playwright.chromium.launch()
         self._page = self._browser.new_page()
         self._page.on("dialog", self._dialog)
+        self._pages = [self._page]
+        self._page.context.on("page", self._new_window)
         self._frame, self._alerts = None, []
         self._page.goto(url)
+
+    def _new_window(self, page):
+        page.on("dialog", self._dialog)
+        self._pages.append(page)
+
+    def switch_window(self, locator: str = "MAIN", timeout=None, browser: str = "CURRENT"):
+        if locator == "MAIN":
+            target = self._pages[0]
+        elif locator == "NEW":  # la dernière fenêtre ouverte ; elle peut mettre un instant à apparaître
+            end = time.monotonic() + (timestr_to_secs(timeout) if timeout else self._timeout_ms / 1000)
+            while self._pages[-1] is self._page and time.monotonic() < end:
+                self._page.wait_for_timeout(50)
+            target = self._pages[-1]
+            if target is self._page:
+                raise AssertionError("Window with last index is same as the current window.")
+        else:
+            target = next((page for index, page in enumerate(self._pages) if f"fenetre-{index}" == locator), None)
+            if target is None:
+                raise AssertionError(f"No window matching handle, name, title or URL '{locator}' found.")
+        self._page, self._frame = target, None
+        target.bring_to_front()
+
+    def get_window_handles(self, browser: str = "CURRENT"):
+        return [f"fenetre-{index}" for index in range(len(self._pages))]
+
+    def _apply_init_scripts(self):
+        while self._init_scripts:
+            self._page.context.add_init_script(self._init_scripts.pop(0))
+
+    def reload_page(self):
+        self._apply_init_scripts()
+        self._page.reload()
+
+    def press_keys(self, locator=None, *keys: str):
+        for key in keys:
+            name = "+".join(_KEYS.get(part, part) for part in key.split("+"))
+            if locator in (None, "None", "NONE"):
+                self._page.keyboard.press(name)
+            else:
+                self._find(locator).press(name)
+
+    def mouse_over(self, locator: str):
+        self._find(locator).hover()
+
+    def double_click_element(self, locator: str):
+        self._find(locator).dblclick()
+
+    def open_context_menu(self, locator: str):
+        self._find(locator).click(button="right")
+
+    def scroll_element_into_view(self, locator: str):
+        self._find(locator).scroll_into_view_if_needed()
+
+    def choose_file(self, locator: str, file_path: str):
+        self._find(locator).set_input_files(file_path)
+
+    def drag_and_drop(self, locator: str, target: str):
+        self._find(locator).drag_to(self._find(target))
+
+    def get_webelement(self, locator: str):
+        return self._find(locator).element_handle()
 
     def _dialog(self, dialog):
         # Selenium affiche le message sur une ligne (Handle Alert)
@@ -60,6 +149,7 @@ class SeleniumLibrary:
             self._playwright = self._browser = self._page = None
 
     def go_to(self, url: str):
+        self._apply_init_scripts()
         self._page.goto(url)
         self._frame = None  # comme Selenium : une navigation revient à la page
 
@@ -145,9 +235,14 @@ class SeleniumLibrary:
     def wait_until_location_does_not_contain(self, location: str):
         expect(self._page).not_to_have_url(re.compile(re.escape(location)), timeout=self._timeout_ms)
 
-    def execute_javascript(self, *code: str):
-        # Selenium exécute le code comme le corps d'une fonction anonyme, dans le cadre sélectionné
-        return self._scope().evaluate("() => {" + "".join(code) + "}")
+    def execute_javascript(self, *code):
+        # Selenium exécute le code comme le corps d'une fonction anonyme, dans le cadre sélectionné ;
+        # après ARGUMENTS viennent les valeurs (des éléments, par exemple) que le code lit dans arguments
+        arguments = []
+        if "ARGUMENTS" in code:
+            index = code.index("ARGUMENTS")
+            code, arguments = code[:index], list(code[index + 1:])
+        return self._scope().evaluate("(args) => (function () {" + "".join(code) + "}).apply(null, args)", arguments)
 
     def get_text(self, locator: str) -> str:
         return self._find(locator).inner_text()
