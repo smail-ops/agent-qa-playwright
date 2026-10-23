@@ -11,8 +11,8 @@ On lui donne l'adresse d'un site, ou un cas de test écrit en français comme da
 | **Concevoir** | À partir d'une URL, il analyse le site et propose des **user stories** avec leurs critères d'acceptation en **Gherkin**, puis les **cas de test** d'une user story. |
 | **Exécuter** | Il exécute un cas de test, en Markdown ou en Gherkin, avec six familles de vérifications (texte, URL, ordre, nombre, valeur d'un champ ou son format, état d'un bouton ou d'une case). Il entre dans les **iframes** et les **composants web (Shadow DOM)**, manie les **listes déroulantes maison**, répond aux **fenêtres JavaScript** et **attend** un chargement lent. Avec la **vision**, le modèle voit aussi l'écran. |
 | **Industrialiser** | Chaque exécution génère un test **pytest-playwright**, un test **Robot Framework** (SeleniumLibrary) et un **scénario Gherkin** exécutable. Un parcours réussi est **mémorisé** et rejoué sans IA ; si le site change, l'IA répare le parcours (**auto-réparation**). |
-| **Analyser** | Quand un test échoue, il rédige la **fiche d'anomalie** (étapes pour reproduire, résultat obtenu et attendu, capture), avec un diagnostic de l'IA présenté comme un avis à confirmer. |
-| **Piloter** | **Alfred**, une interface vocale, commente la mission en direct et répond aux questions : « pourquoi le dernier test a échoué ? », « refais le test de connexion sur le site de recette ». |
+| **Analyser** | Quand un test échoue, il rédige la **fiche d'anomalie** (étapes pour reproduire, résultat obtenu et attendu, capture), avec un diagnostic de l'IA présenté comme un avis à confirmer. Sur une erreur technique, le diagnostic s'appuie sur la **documentation officielle** de Playwright, liens à l'appui. |
+| **Piloter** | **Alfred**, une interface vocale, commente la mission en direct et répond aux questions : « pourquoi le dernier test a échoué ? », « refais le test de connexion sur le site de recette », « comment gère-t-on une iframe avec Robot Framework ? » (réponse tirée de la documentation officielle, avec le lien). |
 | **Se mesurer** | Une **campagne terrain** de 20 cas sur cinq sites d'entraînement, avec un verdict attendu pour chacun, et un **bilan** qui compte les verdicts justes, les faux PASS, les faux FAIL, les appels au modèle et la durée. |
 
 L'IA propose, le programme vérifie : le verdict vient toujours des vérifications réelles, jamais de l'avis du modèle (voir [Les garde-fous](#les-garde-fous)).
@@ -38,6 +38,8 @@ flowchart LR
     A --> R[Rapport, captures, resultat.json]
     A -- échec --> F[Fiche d'anomalie et diagnostic]
     AL[Alfred : voix et conversation] -.-> A
+    DOC[Documentation officielle] -. extraits cités .-> F
+    DOC -. extraits cités .-> AL
 ```
 
 À chaque tour de l'agent :
@@ -63,6 +65,7 @@ Une IA peut se tromper. Le programme ne lui fait pas confiance aveuglément :
 - **Fenêtres JavaScript tracées** : une fenêtre d'alerte ou de confirmation reçoit OK, sauf consigne contraire du modèle (action `dialog`), et son message est noté dans le rapport. Les tests générés lui font la même réponse, après avoir vérifié son message.
 - **Vision signalée** : une vérification faite à l'œil par l'IA sur une capture (`check_visual`) est marquée comme un avis dans le rapport, n'est pas rejouée par les tests générés (elle y figure comme « à automatiser ») et un parcours qui en dépend n'est pas mémorisé.
 - **Conversation contrôlée** : quand on parle librement à Alfred, le modèle ne peut que proposer une action d'une liste fermée (lancer, afficher, arrêter, ouvrir un fichier, rédiger un cas, analyser un site). Le programme vérifie que le cas existe et que l'adresse est valide, et la réponse lue à voix haute ne contient jamais un mot de passe.
+- **Sources contrôlées** : pour une question sur Playwright, Selenium ou Robot Framework, ou pour une erreur technique, le programme lit lui-même des pages officielles, choisies dans une liste fermée, et n'envoie au modèle que des extraits numérotés. Les liens affichés sont ceux des extraits que le modèle a cités : il ne peut ni inventer une source, ni citer une page qu'il n'a pas reçue, et une adresse écrite dans sa réponse est retirée.
 - **Propositions relues** : les user stories et les cas proposés par l'IA sont contrôlés (format, mots-clés Gherkin, étapes, résultats attendus), rien n'est enregistré sans l'accord du testeur, et le mot de passe du compte de test n'est jamais envoyé au modèle.
 
 ## Installation (Mac ou Linux)
@@ -164,6 +167,7 @@ Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du proj
 Alfred comprend deux sortes de phrases :
 
 - **Les commandes simples**, comprises dans la page, sans IA et sans quota : « lance la démo », « lance le cas 2 », « vas-y », « arrête », « ouvre le rapport », « ouvre la fiche d'anomalie ». « Qui es-tu ? » et « présente-toi » aussi : Alfred se présente, même sans clé d'API.
+- **Les questions sur un outil de test** : « comment gère-t-on une iframe avec Robot Framework ? ». Alfred répond à partir de la documentation officielle, et le lien s'affiche sous sa réponse. Voir [Questions sur Playwright, Selenium et Robot Framework](#questions-sur-playwright-selenium-et-robot-framework).
 - **Tout le reste** : une question ou une demande libre part au modèle (Gemini ou Claude), avec le contexte utile : la liste des cas de test, le cas affiché, la mission en cours et les derniers résultats (statut, vérifications en échec, diagnostic de l'IA). Une requête par phrase.
 
 Quelques exemples :
@@ -177,8 +181,20 @@ Quelques exemples :
 | « Vérifie qu'on ne peut pas commander sans code postal » | il rédige le cas au format CT, l'affiche, et le lance quand tu dis « vas-y » |
 | « Analyse saucedemo.com et propose des user stories » | il ouvre les propositions et lance l'analyse |
 | « Montre-moi la fiche d'anomalie de CT-14 » | il l'ouvre, même si le test a tourné un autre jour |
+| « Comment on gère une iframe avec Robot Framework ? » | il lit la documentation de SeleniumLibrary et répond à partir des extraits (Select Frame, puis Unselect Frame), avec le lien sous la réponse |
 
-Alfred garde les derniers échanges en tête : on peut enchaîner (« et celui d'avant ? »). Sans clé d'API, seules les commandes simples fonctionnent, et Alfred le dit. Les résultats viennent du fichier `resultat.json` que chaque exécution écrit dans son dossier de rapport.
+Alfred garde les derniers échanges en tête : on peut enchaîner (« et celui d'avant ? »). Sans clé d'API, seules les commandes simples fonctionnent, et Alfred le dit ; à une question sur un outil, il donne quand même les liens de la documentation officielle. Les résultats viennent du fichier `resultat.json` que chaque exécution écrit dans son dossier de rapport.
+
+### Questions sur Playwright, Selenium et Robot Framework
+
+Une question qui cite un outil (« comment… », « quel mot-clé… », « pourquoi j'ai une StaleElementReferenceException… ») ne part pas au modèle telle quelle :
+
+1. Le programme choisit au plus deux pages dans une liste fermée de pages officielles (playwright.dev, selenium.dev, robotframework.org), d'après les mots de la question. Les mots français trouvent leur équivalent anglais : « cadre » cherche aussi frame, « survoler » cherche hover. Si aucun mot ne désigne une page, il lit les références de l'outil, par exemple les mots-clés de SeleniumLibrary et de BuiltIn.
+2. Il lit ces pages et les découpe par titres. La documentation des mots-clés de Robot Framework est construite en JavaScript : le programme lit directement ses données, un mot-clé par partie.
+3. Il garde les quatre parties les plus proches de la question, avec le classement des moteurs de recherche (BM25) : un mot rare compte plus qu'un mot présent partout, et « Input Text » passe avant « Input Text Into Alert ».
+4. Le modèle reçoit ces extraits numérotés, répond à partir d'eux seulement et donne les numéros qui appuient sa réponse. Les liens affichés sous la réponse sont ceux de ces extraits, avec l'ancre de la partie (`SeleniumLibrary.html#Select%20Frame`).
+
+Une question coûte une requête au modèle, comme une autre phrase : aucune recherche web payante. Les pages lues restent en mémoire jusqu'à l'arrêt d'Alfred. Sans réseau, ou si le quota du modèle est épuisé, Alfred donne les liens des pages qui en parlent. Si les pages lues ne parlent pas du sujet, il répond comme d'habitude.
 
 Sous le capot, le serveur n'utilise que la bibliothèque standard de Python et la page n'a pas de framework. Chaque événement de l'agent (observer, réfléchir, agir, étape terminée, mémoire, réparation, analyse) est diffusé à la page en Server-Sent Events. Le serveur n'écoute que sur 127.0.0.1, refuse les requêtes venant d'autres sites et ne sert que les fichiers de ses propres missions.
 
@@ -435,17 +451,19 @@ Quand un test échoue (ou reste bloqué), l'agent rédige `anomalie.md`, prête 
 
 Avec Gemini ou Claude, le modèle reçoit ensuite les faits (cas de test, historique, état final de la page) et propose un **diagnostic** : bug de l'application, problème du test ou problème d'environnement, avec une gravité, une explication et la prochaine action conseillée. Ce diagnostic coûte un appel au modèle, et il est présenté comme un avis à confirmer.
 
+Quand l'échec vient d'une erreur technique de Playwright (« Timeout 5000ms exceeded », « strict mode violation », « Input of type "submit" cannot be filled »), le programme lit aussi les pages de la documentation officielle qui en parlent et joint au diagnostic les extraits les plus proches du message. Le modèle s'appuie dessus et cite ceux qui lui ont servi : la fiche et le rapport donnent leurs liens, sous « Dans la documentation officielle ». Une vérification en échec n'est pas une erreur technique : elle ne déclenche aucune lecture.
+
 ## Tests du projet
 
-Les 315 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet.
+Les 354 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
 
 ```bash
 pytest
 ```
 
-Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses du modèle, la construction des requêtes Gemini et Claude (avec ou sans image), l'observation de la page (cadres, composants web, listes maison, libellés posés à côté des champs, cadres de publicité ignorés), les fenêtres JavaScript, l'attente d'un texte, le masquage des données personnelles, les familles de vérifications (dont l'attente d'une page qui change encore, les motifs et l'avis visuel), les règles de statut (FAIL forcé, PASS sans vérification refusé, arrêt après erreurs), la mémoire (rejeu sans appel au modèle, auto-réparation, cas modifié, autre site), la fiche d'anomalie, les tests générés, l'analyse d'un site (connexion avec un compte de test, liens risqués jamais suivis, mot de passe jamais transmis), le contrôle des user stories et des cas proposés, et le bilan de campagne (lecture du fichier de campagne, choix de la dernière exécution, classement des écarts, exécution coupée par le quota, période et site, rendu). Ils vérifient aussi la campagne terrain elle-même : vingt cas, quatre par site, un fichier par cas sur la bonne adresse, et aucun verdict ni piège annoncé dans le texte d'un cas. Le script pytest est rejoué tel quel. Les fichiers `.robot`, classique et Gherkin, sont exécutés par Robot Framework, avec un double de SeleniumLibrary piloté par Playwright (`tests/robot_double`) pour se passer de Chrome.
+Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses du modèle, la construction des requêtes Gemini et Claude (avec ou sans image), l'observation de la page (cadres, composants web, listes maison, libellés posés à côté des champs, cadres de publicité ignorés), les fenêtres JavaScript, l'attente d'un texte, le masquage des données personnelles, les familles de vérifications (dont l'attente d'une page qui change encore, les motifs et l'avis visuel), les règles de statut (FAIL forcé, PASS sans vérification refusé, arrêt après erreurs), la mémoire (rejeu sans appel au modèle, auto-réparation, cas modifié, autre site), la fiche d'anomalie, la recherche dans la documentation officielle (choix des pages, lecture des pages Docusaurus, docutils et libdoc, classement des parties, sources citées contrôlées, page injoignable, quota épuisé), les tests générés, l'analyse d'un site (connexion avec un compte de test, liens risqués jamais suivis, mot de passe jamais transmis), le contrôle des user stories et des cas proposés, et le bilan de campagne (lecture du fichier de campagne, choix de la dernière exécution, classement des écarts, exécution coupée par le quota, période et site, rendu). Ils vérifient aussi la campagne terrain elle-même : vingt cas, quatre par site, un fichier par cas sur la bonne adresse, et aucun verdict ni piège annoncé dans le texte d'un cas. Le script pytest est rejoué tel quel. Les fichiers `.robot`, classique et Gherkin, sont exécutés par Robot Framework, avec un double de SeleniumLibrary piloté par Playwright (`tests/robot_double`) pour se passer de Chrome.
 
-Les tests d'Alfred vérifient l'API, le flux en direct, l'arrêt d'une mission, la mémoire, l'annonce du diagnostic, les propositions, la conversation libre (contexte envoyé au modèle, actions contrôlées, mot de passe jamais prononcé), les protections du serveur et la compréhension des commandes vocales, puis pilotent dans l'interface des missions complètes, une analyse de site et un cas de test dicté puis lancé sur « vas-y ».
+Les tests d'Alfred vérifient l'API, le flux en direct, l'arrêt d'une mission, la mémoire, l'annonce du diagnostic, les propositions, la conversation libre (contexte envoyé au modèle, actions contrôlées, mot de passe jamais prononcé, réponses tirées de la documentation et liens affichés), les protections du serveur et la compréhension des commandes vocales, puis pilotent dans l'interface des missions complètes, une analyse de site et un cas de test dicté puis lancé sur « vas-y ».
 
 GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des trois démos avec le vrai SeleniumLibrary et Chrome : cadre sélectionné avec `Select Frame`, composant web atteint par un localisateur `dom:`, fenêtre traitée par `Handle Alert`. Si un test Robot échoue, son nom et son message s'affichent sur la page du run, lisibles sans être connecté à GitHub. Le double de SeleniumLibrary répond OK à toutes les fenêtres : la réponse Annuler et la saisie dans une fenêtre ne sont vérifiées qu'avec le vrai SeleniumLibrary.
 
@@ -466,6 +484,7 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 | `agent/runner.py` | boucle de l'agent, rejeu de la mémoire, calcul du statut final, événements pour une interface |
 | `agent/memoire.py` | mémoire des parcours réussis et rejeu sans IA |
 | `agent/anomalie.py` | fiche d'anomalie et diagnostic de l'échec par le modèle |
+| `agent/documentation.py` | recherche dans la documentation officielle de Playwright, Selenium et Robot Framework : pages choisies, lecture, extraits, sources citées |
 | `agent/execution.py` | exécution complète d'un cas de test, commune à la ligne de commande et à Alfred |
 | `agent/report.py` | rapport Markdown |
 | `agent/resultat.py` | bilan lisible par un programme (`resultat.json`), relu par Alfred |
@@ -501,6 +520,7 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 | `Le port 8765 est déjà utilisé` | Alfred tourne déjà : ouvre http://127.0.0.1:8765, ou lance `python -m alfred --port 8766` |
 | Alfred ne parle pas | clique d'abord dans la page (le navigateur bloque le son avant toute action), vérifie que « Voix activée » est allumé, et installe une voix française dans Réglages Système, Accessibilité, Contenu énoncé |
 | Alfred répond qu'il lui faut une clé | une phrase qui n'est pas une commande simple part au modèle : ajoute `GEMINI_API_KEY` (ou `ANTHROPIC_API_KEY`) dans `.env`, puis relance Alfred. Sans clé, dis par exemple « lance la démo » |
+| « Je n'ai pas pu consulter la documentation officielle » | l'ordinateur n'atteint pas playwright.dev, selenium.dev ou robotframework.org (pas de réseau, proxy d'entreprise) : les liens donnés restent bons, ouvre-les dans le navigateur |
 | Pas de bouton micro | la reconnaissance vocale dépend du navigateur : elle fonctionne dans Chrome, Safari peut demander d'activer la dictée de macOS, Firefox ne la propose pas |
 
 ## Limites et pistes
@@ -535,6 +555,8 @@ Les limites de l'agent, relevées dans le code et, pour la plupart, vérifiées 
 
 - Les mots de passe saisis apparaissent en clair dans `rapport.md`, `anomalie.md`, la mémoire et les tests générés. Alfred, lui, ne les prononce ni ne les affiche.
 - Le masquage repère les adresses e-mail, les numéros de téléphone, de carte et les IBAN, pas les noms ni les adresses postales. Le texte du cas, identifiants compris, part tel quel chez le fournisseur du modèle, et avec la vision, la capture d'écran n'est pas masquée.
+
+**Nouveau en version 0.6** : les réponses tirées de la documentation officielle, pour les questions à Alfred comme pour les erreurs techniques dans la fiche d'anomalie.
 
 **Levées en version 0.5** : les iframes, le Shadow DOM ouvert, les listes déroulantes faites de div, les éditeurs riches (contenteditable), les champs dont le libellé n'est pas relié par for/id, les fenêtres JavaScript (alert, confirm, prompt), l'attente d'un chargement lent (action `wait`, 30 secondes au plus) et la vérification d'un format (motif). Les données personnelles de la page sont aussi masquées avant l'envoi au modèle.
 
