@@ -36,7 +36,12 @@ if TYPE_CHECKING:
     from .testcase import TestCase
 
 VERSION = 1
-_ELEMENT_FIELDS = ("selector", "nth", "xpath", "tag", "type", "text")
+_ELEMENT_FIELDS = ("selector", "nth", "xpath", "tag", "type", "text", "shadow", "frame")
+
+
+def _place(hops: list | None) -> tuple:
+    """Cadres ou composants qui contiennent l'élément, sans leur nom affiché (qui peut changer)."""
+    return tuple((hop.get("css"), hop.get("nth")) for hop in hops or [] if isinstance(hop, dict))
 
 
 def fingerprint(case: TestCase) -> str:
@@ -111,14 +116,17 @@ def find_again(saved: dict, observation: Observation) -> Element | None:
     """Retrouve dans la page actuelle l'élément mémorisé.
 
     Seule une correspondance exacte compte : même sélecteur (et même rang s'il y a
-    plusieurs éléments identiques), ou même XPath. Au moindre doute, mieux vaut
-    laisser le modèle chercher que cliquer au mauvais endroit.
+    plusieurs éléments identiques), ou même XPath, dans le même cadre et le même
+    composant. Au moindre doute, mieux vaut laisser le modèle chercher que
+    cliquer au mauvais endroit.
     """
-    for element in observation.elements:
+    place = (_place(saved.get("frame")), _place(saved.get("shadow")))
+    here = [e for e in observation.elements if (_place(e.frame), _place(e.shadow)) == place]
+    for element in here:
         if element.selector == saved.get("selector") and element.nth == saved.get("nth"):
             return element
     if saved.get("xpath"):
-        for element in observation.elements:
+        for element in here:
             if element.xpath == saved["xpath"]:
                 return element
     return None

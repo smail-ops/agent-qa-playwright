@@ -12,7 +12,7 @@ Ce fichier n'est jamais envoyé au modèle. Le modèle lit tout le texte d'un ca
 
 Quand l'agent peut faire toutes les étapes mais conclut mal (vérification trop tôt, mauvais élément), ce n'est pas un BLOQUÉ attendu : c'est une erreur de l'agent, comptée comme telle par le bilan.
 
-Les verdicts BLOQUÉ valent pour l'agent d'aujourd'hui. Quand une limite sera levée (iframes, Shadow DOM), le verdict attendu du cas concerné changera : la raison l'indique.
+Les verdicts attendus suivent ce que sait faire l'agent. La version 0.5 a levé les limites visées par quatre pièges (fenêtres JavaScript, listes maison, iframes, Shadow DOM) et ajouté l'attente d'un chargement lent : leurs verdicts attendus sont passés de BLOQUÉ à PASS, et la raison dit ce qui a changé. L'oracle de la version 0.4 est gardé dans [campagne_v0.4.md](campagne_v0.4.md), pour le bilan « avant » (voir plus bas).
 
 ## Verdicts attendus
 
@@ -21,7 +21,7 @@ Les verdicts BLOQUÉ valent pour l'agent d'aujourd'hui. Quand une limite sera le
 | [CT-17](automation_exercise/CT-17_recherche_produit.md) | Automation Exercise | Parcours normal | | PASS | La recherche « Jeans » affiche « Searched Products » et des jeans, et l'URL devient /products?search=Jeans : tout se lit dans le texte et l'adresse. |
 | [CT-18](automation_exercise/CT-18_quantite_dans_le_panier.md) | Automation Exercise | Parcours normal | | PASS | Quatre « Blue Top » à Rs. 500 : le panier affiche une ligne à Rs. 2000. La fenêtre « Added! » est dans la page, l'agent la voit. |
 | [CT-19](automation_exercise/CT-19_connexion_refusee.md) | Automation Exercise | Cas négatif | | PASS | Le site refuse la connexion avec « Your email or password is incorrect! ». Les deux champs « Email Address » (connexion et inscription) se ressemblent : l'agent doit prendre ceux du bloc de connexion. |
-| [CT-20](automation_exercise/CT-20_formulaire_de_contact.md) | Automation Exercise | Piège | | BLOQUÉ | L'envoi passe par une fenêtre JavaScript confirm() (« Press OK to proceed! »). Playwright la ferme d'office en choisissant Annuler, sans que l'agent la voie : l'étape 7 est impossible et le formulaire n'est jamais envoyé. Risque : faux FAIL si l'agent vérifie quand même le message de succès. Le même message existe, caché, dans le pied de page : l'agent ne lit que le texte visible, il ne doit pas s'y laisser prendre. |
+| [CT-20](automation_exercise/CT-20_formulaire_de_contact.md) | Automation Exercise | Piège | | PASS | L'envoi passe par une fenêtre JavaScript confirm() (« Press OK to proceed! »). L'agent y répond OK, et lit son message dans le résultat du clic : le formulaire part et « Success! Your details have been submitted successfully. » s'affiche, avec le bouton « Home ». Le même message existe, caché, dans le pied de page : l'agent ne lit que le texte visible. Avant la version 0.5, Playwright fermait la fenêtre en choisissant Annuler : BLOQUÉ. |
 | [CT-21](parabank/CT-21_connexion_compte_demo.md) | ParaBank | Parcours normal | | PASS | Le compte john/demo ouvre « Accounts Overview », dont le tableau, chargé après la page, se termine par « Total ». |
 | [CT-22](parabank/CT-22_ouverture_compte_epargne.md) | ParaBank | Parcours normal | | PASS | Le type de compte et le compte de dépôt sont des listes natives (select), que l'agent sait utiliser : « Account Opened! » s'affiche. |
 | [CT-23](parabank/CT-23_connexion_refusee.md) | ParaBank | Cas négatif | | PASS | Un mauvais mot de passe affiche « The username and password could not be verified. » |
@@ -29,17 +29,17 @@ Les verdicts BLOQUÉ valent pour l'agent d'aujourd'hui. Quand une limite sera le
 | [CT-25](orangehrm/CT-25_connexion_administrateur.md) | OrangeHRM | Parcours normal | | PASS | Admin/admin123 ouvre le tableau de bord « Dashboard ». |
 | [CT-26](orangehrm/CT-26_ajout_employe.md) | OrangeHRM | Parcours normal | | PASS | Les champs First Name et Last Name ont un nom et un texte d'aide, l'agent les voit. Après Save, la fiche « Personal Details » s'ouvre avec le prénom saisi. |
 | [CT-27](orangehrm/CT-27_connexion_refusee.md) | OrangeHRM | Cas négatif | | PASS | Un mauvais mot de passe affiche « Invalid credentials » et l'adresse reste sur auth/login. |
-| [CT-28](orangehrm/CT-28_filtre_par_role.md) | OrangeHRM | Piège | | BLOQUÉ | « User Role » est une liste maison (des div, sans rôle ni attribut onclick) : l'agent ne la voit pas et ne peut pas choisir « ESS ». Risque : faux PASS si l'agent saute l'étape et vérifie seulement que « ESS » apparaît, ce que la liste non filtrée montre déjà. |
+| [CT-28](orangehrm/CT-28_filtre_par_role.md) | OrangeHRM | Piège | | PASS | « User Role » est une liste maison (des div) dont le libellé n'est pas relié par for/id. L'agent la voit comme un champ nommé « User Role », l'ouvre d'un clic, clique sur l'option « ESS », puis vérifie le texte de la liste. Risque : faux PASS si l'agent vérifie seulement que « ESS » apparaît, ce que la liste non filtrée montre déjà. Avant la version 0.5 : BLOQUÉ. |
 | [CT-29](the_internet/CT-29_connexion_zone_securisee.md) | The Internet | Parcours normal | | PASS | tomsmith / SuperSecretPassword! mène à « You logged into a secure area! ». |
 | [CT-30](the_internet/CT-30_images_de_la_galerie.md) | The Internet | Parcours normal | oui | FAIL | Vrai défaut : deux images sur trois (asdf.jpg et hjkl.jpg) n'existent pas. Seule la vision peut le constater, par une vérification visuelle signalée comme un avis de l'IA. Lancé sans la vision, le bon verdict serait BLOQUÉ. |
 | [CT-31](the_internet/CT-31_connexion_refusee.md) | The Internet | Cas négatif | | PASS | Un mauvais mot de passe affiche « Your password is invalid! » et l'adresse reste sur /login. |
-| [CT-32](the_internet/CT-32_editeur_de_texte.md) | The Internet | Piège | | BLOQUÉ | La zone de saisie de TinyMCE est dans une iframe : l'agent ne voit ni le champ ni son texte. Risque : faux FAIL s'il cherche « Bonjour Alfred » dans la page principale, faux PASS s'il se contente de vérifier que « Your content goes here. » est absent (ce texte est toujours absent pour lui). PASS attendu quand les iframes seront gérées. |
+| [CT-32](the_internet/CT-32_editeur_de_texte.md) | The Internet | Piège | | PASS | La zone de saisie de TinyMCE est dans une iframe : l'agent entre dans le cadre, voit la zone de texte riche (contenteditable) et son texte, la remplit et vérifie son contenu. Une vérification « absent » regarde aussi dans les cadres. Risque : si l'éditeur s'affiche en lecture seule (TinyMCE le fait quand la clé d'API du site n'est plus valable, avec un bandeau d'avertissement), la saisie est impossible et BLOQUÉ devient le bon verdict. Avant la version 0.5 : BLOQUÉ. |
 | [CT-33](ui_testing_playground/CT-33_connexion_sample_app.md) | UI Testing Playground | Parcours normal | | PASS | Tout nom non vide avec « pwd » affiche « Welcome, Alfred! ». Les id des champs changent à chaque chargement, mais l'agent désigne les éléments par leur numéro. |
-| [CT-34](ui_testing_playground/CT-34_donnees_ajax.md) | UI Testing Playground | Parcours normal | | PASS | Le site fonctionne : le texte arrive après 15 secondes. Risque : faux FAIL (ou BLOQUÉ à tort), car l'agent n'a pas d'action pour attendre et une vérification ne laisse que 3 secondes à la page. |
+| [CT-34](ui_testing_playground/CT-34_donnees_ajax.md) | UI Testing Playground | Parcours normal | | PASS | Le site fonctionne : le texte arrive après 15 secondes. Depuis la version 0.5, l'action wait attend jusqu'à 30 secondes l'arrivée d'un texte. Risque : faux FAIL si l'agent vérifie sans attendre, car une vérification ne laisse que 3 secondes à la page. |
 | [CT-35](ui_testing_playground/CT-35_connexion_refusee.md) | UI Testing Playground | Cas négatif | | PASS | Un mauvais mot de passe affiche « Invalid username/password ». |
-| [CT-36](ui_testing_playground/CT-36_generateur_de_guid.md) | UI Testing Playground | Piège | | BLOQUÉ | Le générateur est un composant Shadow DOM : ni son champ ni ses boutons n'apparaissent dans la liste des éléments de l'agent. Une fois le Shadow DOM géré, il faudra encore lire la valeur du champ pour conclure. |
+| [CT-36](ui_testing_playground/CT-36_generateur_de_guid.md) | UI Testing Playground | Piège | | PASS | Le générateur est un composant Shadow DOM : l'agent voit son champ et ses boutons (désignés par leur id, les boutons n'ont qu'une icône), et vérifie le format du GUID avec un motif (check_value avec regex), sans connaître sa valeur à l'avance. Avant la version 0.5 : BLOQUÉ. |
 
-En tout : 14 PASS, 2 FAIL (deux vrais défauts) et 4 BLOQUÉ attendus.
+En tout : 18 PASS, 2 FAIL (deux vrais défauts) et 0 BLOQUÉ attendus.
 
 ## Risques terrain
 
@@ -173,4 +173,40 @@ python -m agent.bilan --site playground
 
 ```bash
 python -m agent.bilan
+```
+
+### Avant et après la version 0.5
+
+Le bilan « avant » relit les exécutions faites jusqu'au 22 octobre avec l'oracle de la version 0.4 :
+
+```bash
+python -m agent.bilan --jusqua 2026-10-22 --campagne cas_de_test/terrain/campagne_v0.4.md --sortie rapports/bilan_avant.md
+```
+
+Le bilan « après » relit les exécutions faites depuis la mise à jour, avec l'oracle à jour :
+
+```bash
+python -m agent.bilan --depuis 2026-10-23 --sortie rapports/bilan_apres.md
+```
+
+Les cinq cas qui comptent pour la comparaison, à relancer en priorité :
+
+```bash
+python -m agent cas_de_test/terrain/automation_exercise/CT-20_formulaire_de_contact.md --headed --pause 4 --sans-memoire
+```
+
+```bash
+python -m agent cas_de_test/terrain/orangehrm/CT-28_filtre_par_role.md --headed --pause 4 --sans-memoire
+```
+
+```bash
+python -m agent cas_de_test/terrain/the_internet/CT-32_editeur_de_texte.md --headed --pause 4 --sans-memoire
+```
+
+```bash
+python -m agent cas_de_test/terrain/ui_testing_playground/CT-34_donnees_ajax.md --headed --pause 4 --sans-memoire
+```
+
+```bash
+python -m agent cas_de_test/terrain/ui_testing_playground/CT-36_generateur_de_guid.md --headed --pause 4 --sans-memoire
 ```

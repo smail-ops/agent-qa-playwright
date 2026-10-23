@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Atelier</title>
+  <style>
+    body { font-family: sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
+    section { margin: 24px 0; }
+    iframe { width: 100%; height: 90px; border: 1px solid #999; }
+    .groupe { display: inline-block; margin-right: 24px; }
+    .groupe label { display: block; margin-bottom: 4px; }
+    .liste { width: 200px; }
+    .liste-choix { border: 1px solid #999; padding: 8px; cursor: pointer; }
+    .liste-options { border: 1px solid #999; border-top: none; }
+    .liste-options [role=option] { padding: 8px; cursor: pointer; }
+    .liste-options [role=option]:hover { background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>Atelier de commande</h1>
+  <p>Quatre éléments que l'on trouve sur les vrais sites, et que l'agent sait manipuler.</p>
+
+  <section>
+    <h2>Note de commande</h2>
+    <!-- Éditeur de texte dans un cadre (iframe), comme TinyMCE -->
+    <iframe id="editeur" title="Éditeur de note" src="cadre.html"></iframe>
+  </section>
+
+  <section>
+    <h2>Code promo</h2>
+    <!-- Composant web : son contenu est dans un Shadow DOM, que document.body.innerText ne voit pas -->
+    <generateur-code></generateur-code>
+  </section>
+
+  <section>
+    <h2>Destinataire</h2>
+    <!-- Listes déroulantes « maison », comme dans OrangeHRM : des div, pas des select,
+         et des libellés posés à côté, sans lien avec la liste (pas d'attribut for) -->
+    <div class="groupe">
+      <label>Rôle</label>
+      <div class="liste">
+        <div class="liste-choix" tabindex="0">-- Choisir --</div>
+        <div class="liste-options" role="listbox" hidden>
+          <div role="option">Admin</div>
+          <div role="option">ESS</div>
+        </div>
+      </div>
+    </div>
+    <div class="groupe">
+      <label>Statut</label>
+      <div class="liste">
+        <div class="liste-choix" tabindex="0">-- Choisir --</div>
+        <div class="liste-options" role="listbox" hidden>
+          <div role="option">Actif</div>
+          <div role="option">Inactif</div>
+        </div>
+      </div>
+    </div>
+    <p id="role-choisi"></p>
+  </section>
+
+  <section>
+    <h2>Envoi</h2>
+    <!-- Fenêtre de confirmation JavaScript (confirm) -->
+    <button data-test="envoyer">Envoyer la commande</button>
+    <p id="envoi"></p>
+  </section>
+
+  <section>
+    <h2>Stock</h2>
+    <!-- Chargement lent : le résultat arrive après 3 secondes -->
+    <button data-test="charger">Charger le stock</button>
+    <p id="stock"></p>
+  </section>
+
+  <script>
+    class GenerateurCode extends HTMLElement {
+      constructor() {
+        super();
+        const racine = this.attachShadow({mode: 'open'});
+        racine.innerHTML = `
+          <style>input { width: 180px; padding: 6px; } button { padding: 6px 10px; }</style>
+          <input id="code" readonly aria-label="Code promo">
+          <button id="generer" aria-label="Générer un code">⚙</button>
+          <p id="statut"></p>`;
+        racine.getElementById('generer').addEventListener('click', () => {
+          racine.getElementById('code').value = 'PROMO-7F3A-91C2';
+          racine.getElementById('statut').textContent = 'Code prêt à copier';
+        });
+      }
+    }
+    customElements.define('generateur-code', GenerateurCode);
+
+    document.querySelectorAll('.groupe').forEach((groupe) => {
+      const nom = groupe.querySelector('label').textContent;
+      const choix = groupe.querySelector('.liste-choix');
+      const options = groupe.querySelector('.liste-options');
+      choix.addEventListener('click', () => { options.hidden = !options.hidden; });
+      options.querySelectorAll('[role=option]').forEach((option) => option.addEventListener('click', () => {
+        choix.textContent = option.textContent;
+        options.hidden = true;
+        document.getElementById('role-choisi').textContent = nom + ' : ' + option.textContent;
+      }));
+    });
+
+    document.querySelector('[data-test=envoyer]').addEventListener('click', () => {
+      const ok = confirm("Confirmer l'envoi de la commande ?");
+      document.getElementById('envoi').textContent = ok ? 'Commande envoyée' : 'Envoi annulé';
+    });
+
+    document.querySelector('[data-test=charger]').addEventListener('click', () => {
+      document.getElementById('stock').textContent = 'Chargement...';
+      setTimeout(() => { document.getElementById('stock').textContent = 'Stock chargé : 12 articles'; }, 3000);
+    });
+  </script>
+</body>
+</html>
