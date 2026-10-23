@@ -29,9 +29,10 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from .actions import STATE_LABELS
-from .codegen_robot import (_ALERTS, _COOKIES, _COUNT, _HIDES, _OPEN, _ORDER, _SHOWS, _VISIBLE, TEXT_BLOCKS, VARIABLES,
-                            _state_keyword, frame_locator, robot_arg, robot_locator, value_keyword)
+from .actions import STATE_LABELS, au, jusqua, key_label
+from .codegen_robot import (_ALERTS, _CLOSED, _COOKIES, _COUNT, _DRAG, _HIDES, _OPEN, _ORDER, _SHOWS, _VISIBLE, CLOSED_VARIABLE,
+                            TEXT_BLOCKS, VARIABLES, _state_keyword, frame_locator, robot_arg, robot_locator, selenium_keys,
+                            value_keyword)
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -85,6 +86,14 @@ _COMMON = {
     "dismiss": ('je refuse la fenêtre "${message}"', ["Refuser la fenêtre    ${message}"], _ALERTS),
     "prompt": ('je réponds "${texte}" à la fenêtre "${message}"',
                ["Log    Fenêtre : ${message}", "Input Text Into Alert    ${texte}    action=ACCEPT"], None),
+    # Onglets : celui qu'ouvre l'étape précédente, ou un onglet déjà ouvert (le premier est le n°1)
+    "new_tab": ("je passe sur le nouvel onglet", ["Switch Window    NEW"], None),
+    "switch_tab": ("je reviens sur l'onglet n°${numero:\\d+}",
+                   ["@{onglets}=    Get Window Handles", "${index}=    Evaluate    int($numero) - 1",
+                    "Switch Window    ${onglets}[${index}]"], None),
+    "bottom": ("je fais défiler la page jusqu'en bas", ["Execute Javascript    window.scrollTo(0, document.body.scrollHeight)"],
+               None),
+    "top": ("je remonte en haut de la page", ["Execute Javascript    window.scrollTo(0, 0)"], None),
 }
 
 
@@ -226,6 +235,12 @@ def _build(run: RunResult) -> _Scenario:
             _action_step(scenario, names, frames, action, result)
         if result.dialog is not None:  # fenêtre JavaScript ouverte par l'étape
             _dialog_step(scenario, result.dialog)
+        if result.opened_tab:  # l'étape a ouvert un nouvel onglet : le scénario y passe, comme l'agent
+            scenario.common("new_tab", "action", "je passe sur le nouvel onglet")
+    opening = 'je suis sur la page "${url}"'
+    if run.closed_shadow and opening in scenario.keywords:  # composants web fermés : ouverts avant d'agir
+        scenario.keywords[opening] = scenario.keywords[opening] + ["Ouvrir les composants fermés"]
+        scenario.blocks.append(_CLOSED)
     return scenario
 
 
@@ -249,6 +264,17 @@ def _action_step(scenario: _Scenario, names: _Names, frames: _Frames, action, re
             sentence += f" {_quote(_safe(args['bouton']))}"
         scenario.define(sentence, lines, _COOKIES)
         scenario.add("contexte" if scenario.last == "contexte" else "action", sentence)
+    elif action.name == "switch_tab":
+        scenario.common("switch_tab", "action", f"je reviens sur l'onglet n°{args['index']}")
+    elif action.name == "scroll" and "ref" not in args:
+        if args["to"] == "bottom":
+            scenario.common("bottom", "action", "je fais défiler la page jusqu'en bas")
+        else:
+            scenario.common("top", "action", "je remonte en haut de la page")
+    elif action.name == "press" and "ref" not in args:
+        sentence = f'j\'appuie sur la touche "{_safe(key_label(args["key"]))}"'
+        scenario.define(sentence, [f"Press Keys    None    {robot_arg(selenium_keys(args['key']))}"])
+        scenario.add("action", sentence)
     elif action.name == "wait":
         if "text" not in args:
             scenario.common("sleep", "action", f"j'attends {args['seconds']} secondes")
@@ -295,14 +321,43 @@ def _element_step(scenario: _Scenario, names: _Names, action, result) -> None:
     locator = robot_arg(robot_locator(element))
 
     def define(keyword_name: str, lines: list[str], block: str | None = None) -> None:
-        if element.shadow and action.name in ("click", "fill", "select"):
+        if element.shadow and action.name in ("click", "fill", "select", "hover", "press", "scroll", "upload", "drag"):
             # Selenium n'attend pas un élément désigné en JavaScript (dom:) : on attend qu'il apparaisse
             lines = [f"Wait Until Page Contains Element    {locator}"] + lines
         scenario.define(keyword_name, _in_frame(element.frame, lines), block)
 
     if action.name == "click":
-        sentence = f"je clique sur {name}"
-        define(sentence, [f"Click Element    {locator}"])
+        if args.get("double"):
+            sentence, keyword = f"je double-clique sur {name}", "Double Click Element"
+        elif args.get("button") == "right":
+            sentence, keyword = f"je fais un clic droit sur {name}", "Open Context Menu"
+        else:
+            sentence, keyword = f"je clique sur {name}", "Click Element"
+        define(sentence, [f"{keyword}    {locator}"])
+        scenario.add("action", sentence)
+    elif action.name == "press":
+        sentence = f'j\'appuie sur la touche "{_safe(key_label(args["key"]))}" dans {name}'
+        define(sentence, [f"Press Keys    {locator}    {robot_arg(selenium_keys(args['key']))}"])
+        scenario.add("action", sentence)
+    elif action.name == "hover":
+        sentence = f"je survole {name}"
+        define(sentence, [f"Mouse Over    {locator}"])
+        scenario.add("action", sentence)
+    elif action.name == "scroll":
+        sentence = f"je fais défiler la page {jusqua(name)}"
+        define(sentence, [f"Scroll Element Into View    {locator}"])
+        scenario.add("action", sentence)
+    elif action.name == "upload":  # le fichier est copié à côté du test
+        define(f'je joins le fichier "${{fichier}}" {au(name)}', [f"Choose File    {locator}    ${{CURDIR}}${{/}}${{fichier}}"])
+        scenario.add("action", f"je joins le fichier {_quote(args['file'])} {au(name)}")
+    elif action.name == "drag" and result.target is not None:
+        target_name, _ = names.get(result.target)
+        target = robot_arg(robot_locator(result.target))
+        sentence = f"je glisse {name} sur {target_name}"
+        if element.draggable():  # glisser-déposer HTML5 : par les événements du navigateur
+            define(sentence, [f"Glisser-déposer    {locator}    {target}"], _DRAG)
+        else:
+            define(sentence, [f"Drag And Drop    {locator}    {target}"])
         scenario.add("action", sentence)
     elif action.name == "fill":
         typing = [f"Input Text    {locator}    ${{texte}}"]
@@ -367,7 +422,7 @@ def generate_bdd_robot(run: RunResult) -> str:
     code = _HEADER.format(
         title=_cell(_clean(run.case.title)),
         feature=feature_filename(run),
-        variables=VARIABLES,
+        variables=VARIABLES + (CLOSED_VARIABLE if run.closed_shadow else ""),
         name=_cell(_clean(run.case.title)),
         body="\n".join(body) or f"{SEP}No Operation",
     )

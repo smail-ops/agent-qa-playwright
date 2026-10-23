@@ -24,7 +24,7 @@ import re
 from typing import TYPE_CHECKING
 
 from . import documentation
-from .actions import _extract_json
+from .actions import _extract_json, au, jusqua, key_label
 from .masquage import mask
 from .prompts import describe_step
 from .providers import ProviderError
@@ -95,6 +95,8 @@ def reproduction_step(step: Step) -> str | None:
     if action is None or action.name.startswith("check_") or action.name in ("finish", "dialog"):
         return None
     line = _action_line(action, result)
+    if line is not None and result.opened_tab:
+        line += ", ce qui ouvre un nouvel onglet"
     if line is not None and result.dialog is not None:
         answer = "OK" if result.dialog["accepted"] else "Annuler"
         line += f", puis répondre {answer} à la fenêtre {_quoted(' '.join(str(result.dialog['message']).split()))}"
@@ -107,6 +109,12 @@ def _action_line(action, result) -> str | None:
         return f"Ouvrir {args['url']}"
     if action.name == "cookies":
         return f"Accepter le bandeau de cookies ({_quoted(args['bouton'])})"
+    if action.name == "switch_tab":
+        return f"Revenir à l'onglet n°{args['index']}"
+    if action.name == "scroll" and "ref" not in args:
+        return "Faire défiler la page jusqu'en bas" if args["to"] == "bottom" else "Remonter en haut de la page"
+    if action.name == "press" and "ref" not in args:
+        return f"Appuyer sur la touche {key_label(args['key'])}"
     if action.name == "wait":
         if "text" in args:
             return f"Attendre l'affichage de {_quoted(args['text'])} ({args['seconds']} s au plus)"
@@ -122,7 +130,23 @@ def _action_line(action, result) -> str | None:
     if action.name == "fill":
         return f"Saisir {_quoted(args['text'])} dans {target}"
     if action.name == "click":
+        if args.get("double"):
+            return f"Double-cliquer sur {target}"
+        if args.get("button") == "right":
+            return f"Faire un clic droit sur {target}"
         return f"Cliquer sur {target}"
+    if action.name == "press":
+        return f"Appuyer sur la touche {key_label(args['key'])} dans {target}"
+    if action.name == "hover":
+        return f"Survoler {target}"
+    if action.name == "scroll":
+        return f"Faire défiler la page {jusqua(target)}"
+    if action.name == "upload":
+        return f"Joindre le fichier {_quoted(args['file'])} {au(target)}"
+    if action.name == "drag":
+        destination = result.target
+        where = f"{destination.noun()[0]} {_quoted(destination.label())}" if destination is not None else f"l'élément [{args['to']}]"
+        return f"Glisser {target} sur {where}"
     if action.name == "select":
         return f"Choisir {_quoted(args['value'])} dans {target}"
     return None

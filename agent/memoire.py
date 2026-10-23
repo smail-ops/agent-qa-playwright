@@ -88,6 +88,12 @@ class Memory:
                     continue
                 entry["element"] = {name: getattr(result.element, name) for name in _ELEMENT_FIELDS}
                 entry["element"]["label"] = result.element.label()
+            if "to" in action.args:  # glisser-déposer : l'élément où déposer
+                if result.target is None:
+                    continue
+                entry["target"] = {name: getattr(result.target, name) for name in _ELEMENT_FIELDS}
+                entry["target"]["label"] = result.target.label()
+            entry["args"].pop("to", None)
             saved.append(entry)
         data = {
             "version": VERSION,
@@ -139,13 +145,14 @@ def replay_action(entry: dict, observation: Observation) -> tuple[Action | None,
     """
     args = dict(entry.get("args") or {}) if isinstance(entry.get("args"), dict) else {}
     reason = entry.get("reason") or "Étape du parcours enregistré"
-    saved = entry.get("element")
-    if isinstance(saved, dict):
-        element = find_again(saved, observation)
-        if element is None:
-            name = saved.get("label") or saved.get("text") or saved.get("selector")
-            return None, f"élément « {name} » introuvable sur la page"
-        args["ref"] = element.ref
+    for key, arg in (("element", "ref"), ("target", "to")):  # l'élément visé, et celui où déposer (glisser-déposer)
+        saved = entry.get(key)
+        if isinstance(saved, dict):
+            element = find_again(saved, observation)
+            if element is None:
+                name = saved.get("label") or saved.get("text") or saved.get("selector")
+                return None, f"élément « {name} » introuvable sur la page"
+            args[arg] = element.ref
     try:  # un fichier de mémoire modifié à la main passe par les mêmes contrôles qu'une réponse du modèle
         action = parse_action(json.dumps({"action": entry.get("action"), "args": args, "reason": reason}))
     except ValueError as exc:

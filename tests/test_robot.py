@@ -43,6 +43,7 @@ def run_scenario(pw_page, demo_url, tmp_path, scenario):
 def run_robot(code: str, tmp_path: Path, *options: str) -> subprocess.CompletedProcess:
     """Exécute un test .robot avec Robot Framework et le double de SeleniumLibrary."""
     pytest.importorskip("robot")
+    tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "test_genere.robot"
     path.write_text(code, encoding="utf-8")
     command = [sys.executable, "-m", "robot", "--pythonpath", str(DOUBLE_DIR), "--outputdir", str(tmp_path / "robot"),

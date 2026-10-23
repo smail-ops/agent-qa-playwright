@@ -23,9 +23,15 @@ Réponds uniquement avec un objet JSON, sans aucun texte autour :
 
 Actions disponibles :
 - goto : {"url": "..."} ouvre une URL
-- click : {"ref": 3} clique sur l'élément numéro 3
+- click : {"ref": 3} clique sur l'élément numéro 3. Ajoute "double": true pour un double-clic, "button": "right" pour un clic droit.
 - fill : {"ref": 1, "text": "..."} remplit un champ ou une zone de texte avec ce texte
 - select : {"ref": 5, "value": "..."} choisit une option dans une liste déroulante (élément select)
+- press : {"key": "Enter"} appuie sur une touche du clavier (Enter, Escape, Tab, ArrowDown, Backspace, Control+A...). Ajoute "ref": 4 pour la taper dans cet élément ; sans ref, elle va à la page.
+- hover : {"ref": 6} survole un élément avec la souris, par exemple un menu qui s'ouvre au survol
+- scroll : {"to": "bottom"} fait défiler la page jusqu'en bas ("top" pour remonter), ou {"ref": 9} jusqu'à cet élément
+- upload : {"ref": 7, "file": "facture.txt"} joint un fichier du dossier de données de test au champ de fichier numéro 7
+- drag : {"ref": 2, "to": 8} glisse l'élément numéro 2 et le dépose sur l'élément numéro 8
+- switch_tab : {"index": 1} passe sur l'onglet numéro 1 (le premier) ; utile pour revenir au premier onglet
 - wait : {"seconds": 15, "text": "..."} attend jusqu'à ce nombre de secondes (30 au plus) que ce texte s'affiche, pour un chargement lent. Sans "text", attend simplement ce nombre de secondes.
 - dialog : {"accept": true | false} réponse à donner à la prochaine fenêtre JavaScript (alerte, confirmation), avant l'action qui l'ouvre. Ajoute "text": "..." pour remplir une fenêtre de saisie.
 - check_text : {"text": "..."} vérifie qu'un texte est présent sur la page. Ajoute "absent": true pour vérifier qu'il n'y est pas.
@@ -48,7 +54,8 @@ Règles :
 9. Une fenêtre JavaScript (alerte, confirmation) reçoit OK par défaut, et son message apparaît dans le résultat de l'action qui l'a ouverte. Pour répondre Annuler, ou remplir une fenêtre de saisie, utilise dialog juste avant cette action.
 10. Pour un résultat qui met du temps à s'afficher (chargement de plusieurs secondes), utilise wait avec le texte attendu, puis vérifie-le.
 11. Les données personnelles de la page (e-mail, téléphone, carte, IBAN) peuvent être remplacées par un repère comme « [e-mail masqué] » : ne saisis et ne vérifie jamais ce repère.
-12. Un bandeau de cookies est accepté par le programme avant ton tour (étape « cookies » de l'historique) : une étape qui demande de l'accepter est alors faite. S'il couvre encore la page, accepte-le toi-même.
+12. Un clic qui ouvre un nouvel onglet t'y fait passer : la page décrite est alors celle du nouvel onglet, et la liste des onglets ouverts est indiquée. Pour revenir au premier, utilise switch_tab.
+13. Un bandeau de cookies est accepté par le programme avant ton tour (étape « cookies » de l'historique) : une étape qui demande de l'accepter est alors faite. S'il couvre encore la page, accepte-le toi-même.
 """
 
 # Ajouté aux consignes quand la vision est activée : le modèle reçoit aussi la capture d'écran.
@@ -68,6 +75,16 @@ def describe_step(step: Step) -> str:
     typed = ' "' + args["text"] + '"' if "text" in args else ""
     if action.name == "wait":
         value = f"{args['seconds']} s{typed}"
+    elif action.name == "press":
+        value = f'"{args["key"]}"'
+    elif action.name == "scroll":
+        value = f'"{args["to"]}"' if "to" in args else ""
+    elif action.name == "upload":
+        value = f'"{args["file"]}"'
+    elif action.name == "drag":
+        value = f"-> [{args['to']}]"
+    elif action.name == "switch_tab":
+        value = f"onglet {args['index']}"
     elif action.name == "cookies":  # fait par le programme, sans le modèle
         value = f'"{args["bouton"]}"'
     elif action.name == "dialog":
@@ -84,6 +101,10 @@ def describe_step(step: Step) -> str:
         value += " (absent)"
     if args.get("regex"):
         value += " (motif)"
+    if args.get("double"):
+        value += " (double-clic)"
+    if args.get("button") == "right":
+        value += " (clic droit)"
     if result.check is True:
         status = "VÉRIFIÉ"
     elif result.check is False:

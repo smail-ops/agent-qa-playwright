@@ -82,7 +82,8 @@ Ce que fait l'agent que tu pilotes :
 - À une question technique sur Playwright, Selenium ou Robot Framework (« comment gérer une iframe ? »), tu réponds à partir de leur documentation officielle, et le lien de la page s'affiche sous ta réponse.
 - Il analyse un site pour proposer des user stories et leurs critères en Gherkin, puis les cas de test d'une user story.
 - Une campagne de vingt cas sur cinq sites d'entraînement mesure la justesse de ses verdicts.
-- Ses limites : il ne tape pas de touche du clavier, ne survole pas, ne glisse-dépose pas, ne suit pas un nouvel onglet, n'envoie pas de fichier, et s'arrête après vingt actions ou trois erreurs de suite."""
+- Il tape des touches du clavier, survole, double-clique, fait un clic droit, fait défiler la page, suit un nouvel onglet, joint un fichier du dossier de données de test et glisse-dépose. Il entre même dans les composants web fermés.
+- Ses limites : il ne passe pas une authentification HTTP du navigateur, ne glisse-dépose pas d'un cadre à un autre, et s'arrête après vingt actions ou trois erreurs de suite."""
 
 
 def system_prompt(provider: Provider) -> str:

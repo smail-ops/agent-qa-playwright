@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from .browser import OPEN_SHADOW_JS
+
 if TYPE_CHECKING:
     from .browser import Element
     from .runner import RunResult
@@ -92,6 +94,14 @@ def _dialog_code(dialog: dict) -> list[str]:
     return [f"# Fenêtre « {message} » : réponse {said}", f"page.once('dialog', lambda dialog: {answer})"]
 
 
+def _new_tab_code(line: str, result) -> list[str]:
+    """Une action qui ouvre un nouvel onglet : le test le récupère et continue dedans, comme l'agent."""
+    if not result.opened_tab:
+        return [line]
+    return ["with page.expect_popup() as nouvel_onglet:", f"    {line}", "page = nouvel_onglet.value",
+            "page.wait_for_load_state()"]
+
+
 def script_filename(run: RunResult) -> str:
     return f"test_{run.case.slug}.py"
 
@@ -100,6 +110,10 @@ def generate_script(run: RunResult) -> str:
     """Construit le code du test à partir des étapes réussies."""
     lines: list[str] = []
     banners: list[str] = []  # bandeaux de cookies déjà pris en charge
+    files = False  # fichiers joints : ils sont copiés à côté du test
+    if run.closed_shadow:  # avant toute page, comme pendant l'exploration
+        lines += ["# Composants web fermés (Shadow DOM « closed ») : créés ouverts, sinon Playwright ne peut pas y entrer",
+                  "page.context.add_init_script(OUVRIR_COMPOSANTS)"]
     for step in run.steps:
         action, result = step.action, step.result
         if action is None or not result.ok:
@@ -119,7 +133,32 @@ def generate_script(run: RunResult) -> str:
                           f"{name} = {args['playwright']}.first",
                           f"page.add_locator_handler({name}, lambda: {name}.click())"]
         elif action.name == "click":
-            lines.append(f"{locator_code(result.element)}.click()")
+            if args.get("double"):
+                click = "dblclick()"
+            elif args.get("button") == "right":
+                click = "click(button='right')"
+            else:
+                click = "click()"
+            lines += _new_tab_code(f"{locator_code(result.element)}.{click}", result)
+        elif action.name == "press":
+            where = locator_code(result.element) if "ref" in args else "page.keyboard"
+            lines += _new_tab_code(f"{where}.press({args['key']!r})", result)
+        elif action.name == "hover":
+            lines.append(f"{locator_code(result.element)}.hover()")
+        elif action.name == "scroll":
+            if "ref" in args:
+                lines.append(f"{locator_code(result.element)}.scroll_into_view_if_needed()")
+            elif args["to"] == "bottom":
+                lines.append("page.evaluate('window.scrollTo(0, document.body.scrollHeight)')")
+            else:
+                lines.append("page.evaluate('window.scrollTo(0, 0)')")
+        elif action.name == "upload":
+            files = True
+            lines.append(f"{locator_code(result.element)}.set_input_files(DOSSIER / {args['file']!r})")
+        elif action.name == "drag":
+            lines.append(f"{locator_code(result.element)}.drag_to({locator_code(result.target)})")
+        elif action.name == "switch_tab":
+            lines += [f"page = page.context.pages[{args['index'] - 1}]  # onglet n°{args['index']}", "page.bring_to_front()"]
         elif action.name == "fill":
             lines.append(f"{locator_code(result.element)}.fill({args['text']!r})")
         elif action.name == "select":
@@ -164,11 +203,18 @@ def generate_script(run: RunResult) -> str:
 
     counting = any(step.action and step.action.name == "check_count" and step.result.ok for step in run.steps)
     body = "\n".join(f"    {line}" for line in lines) or "    pass"
+    imports = "import re\nimport time\n" if counting else "import re\n"
+    helpers = _COUNT_HELPERS if counting else ""
+    if files:
+        imports += "from pathlib import Path\n"
+        helpers += "\n# Fichiers joints pendant le test, copiés à côté de ce fichier\nDOSSIER = Path(__file__).resolve().parent\n"
+    if run.closed_shadow:
+        helpers += f"\n# Crée ouverts les composants web fermés, avant le chargement de la page\nOUVRIR_COMPOSANTS = {OPEN_SHADOW_JS!r}\n"
     return _TEMPLATE.format(
         title=run.case.title,
         filename=script_filename(run),
-        imports="import re\nimport time\n" if counting else "import re\n",
-        helpers=_COUNT_HELPERS if counting else "",
+        imports=imports,
+        helpers=helpers,
         function=f"test_{run.case.slug}",
         body=body,
     )

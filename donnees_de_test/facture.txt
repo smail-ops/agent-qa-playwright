@@ -1,0 +1,3 @@
+Facture n° 2026-001
+Client : Boutique Démo
+Montant : 42,00 euros
