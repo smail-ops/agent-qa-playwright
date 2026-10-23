@@ -137,3 +137,25 @@ def test_une_requete_au_modele(tmp_path):
     assert answer["reponse"] == "Le dernier test, CT-14, a échoué."
     assert answer["action"]["url"] == "/rapports/20261017-234105_ct_14/anomalie.md"
     assert "Tu es Alfred" in sent["system"] and sent["user"].endswith("« pourquoi le dernier test a échoué ? »")
+
+
+def test_alfred_sait_qui_il_est(tmp_path):
+    """« Qui t'a conçu ? », « comment fonctionnes-tu ? » : le modèle reçoit la fiche d'Alfred, version et modèle compris."""
+    from agent import __version__
+
+    sent = {}
+
+    class Gemini:
+        name, model = "gemini", "gemini-flash-latest"
+
+        def complete(self, system, user, images=(), max_tokens=None):
+            sent.update(system=system)
+            return '{"reponse": "Smail Zaich m\'a conçu.", "action": {"type": "aucune"}}'
+
+    answer = converse(Gemini(), "qui t'a conçu ?", [], "CONTEXTE", CAS, tmp_path, "https://www.saucedemo.com/")
+    assert answer == {"reponse": "Smail Zaich m'a conçu.", "action": {"type": "aucune"}}
+    system = sent["system"]
+    assert f"version {__version__}" in system and "par son auteur, Smail Zaich" in system
+    assert "c'est le modèle gemini (gemini-flash-latest) qui te fait parler" in system
+    assert "Pour parler de toi, de l'agent, de son fonctionnement ou de ses limites" in system
+    assert "{identite}" not in system and '{"type": "aucune"}' in system  # les exemples JSON des consignes restent intacts

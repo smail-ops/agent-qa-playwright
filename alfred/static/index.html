@@ -677,11 +677,17 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
     return (etat.statut && etat.statut.salutation) || "Bonjour. Je suis Alfred, votre assistant de test.";
   }
 
+  // « Qui es-tu ? » : la réponse vient aussi du serveur, sans IA, avec ou sans clé d'API.
+  function identite() {
+    return (etat.statut && etat.statut.identite) || "Je suis Alfred, le majordome de votre agent de test.";
+  }
+
   async function enregistrerMaitre(nom, message) {
     try {
       const r = await api("/api/maitre", { method: "POST", corps: { nom } });
       etat.statut.maitre.nom = r.nom;
       etat.statut.salutation = r.salutation;
+      etat.statut.identite = r.identite;
       message.dataset.ton = "ok";
       message.textContent = "Enregistré sur cet ordinateur.";
       $("presentation").hidden = true;
@@ -1261,6 +1267,10 @@ URL : https://www.saucedemo.com/
   function comprendre(texte) {
     const t = texte.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[-'’,.!?;:]/g, " ").replace(/\s+/g, " ").trim()
       .replace(/^alfred /, "");
+    // « Qui es-tu ? », « présente-toi », « qui t'a créé ? » : Alfred se présente lui-même, sans IA
+    if (/^(qui es tu|qui etes vous|tu es qui|vous etes qui|t es qui|presente toi|presentez vous|comment tu t appelles|comment vous appelez vous|c est quoi ton nom|quel est ton nom|quel est votre nom|qui t a (cree|concu|fait|programme)|qui vous a (cree|concu|fait|programme)|qui est ton (createur|auteur))$/.test(t)) {
+      return { type: "presenter" };
+    }
     const question = /\?\s*$/.test(texte.trim()) || /\b(pourquoi|comment|combien|quand|quel|quelle|quels|quelles|est ce que|qu est ce|lequel|laquelle)\b/.test(t);
     if (question) return { type: "inconnu" };
     if (/\b(arrete|arreter|stop|annule|annuler|interromps)\b/.test(t)) return { type: "arreter" };
@@ -1307,6 +1317,7 @@ URL : https://www.saucedemo.com/
     }
     if (commande.type === "ouvrir") return ouvrirFichier(commande.fichier);
     if (commande.type === "saluer") return annoncer(salutation(), { important: true });
+    if (commande.type === "presenter") return annoncer(identite(), { important: true });
     if (commande.type === "aide") return annoncer("Dites par exemple : lance la démo, lance le cas 1, arrête, ou ouvre le rapport. Vous pouvez aussi me parler librement : pourquoi le dernier test a échoué ? Ou dictez-moi un cas de test.", { important: true });
     if (texte) return converser(texte);
     return annoncer("Je n'ai pas compris. Dites par exemple : lance la démo, ou lance le cas 1.", { important: true });
