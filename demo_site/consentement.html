@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Consentement aux cookies</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: rgba(0, 0, 0, .45); font-family: sans-serif; }
+    .boite { background: #fff; max-width: 420px; margin: 18vh auto; padding: 20px; border-radius: 6px; }
+    button { margin: 6px 6px 0 0; padding: 8px 14px; }
+  </style>
+</head>
+<body>
+  <div class="boite" role="dialog" aria-label="Consentement aux cookies">
+    <p>Nous utilisons des cookies pour mesurer l'audience et personnaliser les offres.</p>
+    <button type="button" class="sp_choice_type_12">Paramétrer</button>
+    <button type="button" class="sp_choice_type_11">Tout accepter</button>
+  </div>
+  <script>
+    // Le choix est transmis à la page qui contient le cadre, comme le font les outils de consentement
+    document.querySelector(".sp_choice_type_11").addEventListener("click", () => parent.postMessage("consentement:oui", "*"));
+  </script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Catalogue</title>
+  <style>
+    body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    form { display: flex; gap: 8px; align-items: end; margin: 16px 0; }
+    label { display: grid; gap: 4px; flex: 1; }
+    input { padding: 8px; }
+    li { margin: 10px 0; }
+    #detail { min-height: 1.5em; border-left: 3px solid #999; padding-left: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Catalogue</h1>
+  <p>Les produits arrivent par l'API du site (fetch), comme dans la plupart des applications web.</p>
+  <form id="recherche-form">
+    <label>Recherche <input id="recherche" name="recherche" type="search"></label>
+    <button type="submit" data-test="rechercher">Rechercher</button>
+  </form>
+  <p id="etat" role="status">Chargement du catalogue…</p>
+  <ul id="produits"></ul>
+  <p id="detail"></p>
+  <script>
+    const liste = document.getElementById("produits");
+    const etat = document.getElementById("etat");
+
+    function afficher(produits) {
+      liste.replaceChildren(...produits.map((produit) => {
+        const ligne = document.createElement("li");
+        const bouton = document.createElement("button");
+        bouton.type = "button";
+        bouton.textContent = "Voir le détail";
+        bouton.dataset.test = `detail-${produit.id}`;
+        bouton.addEventListener("click", () => detail(produit.id));
+        ligne.append(`${produit.nom}, ${produit.prix.toFixed(2).replace(".", ",")} € `, bouton);
+        return ligne;
+      }));
+      etat.textContent = `${produits.length} produit${produits.length > 1 ? "s" : ""}`;
+    }
+
+    async function charger(recherche = "") {
+      // L'API renvoie le catalogue ; la recherche filtre la réponse (le serveur de démo ne sait servir que des fichiers)
+      const adresse = recherche ? `api/produits.json?recherche=${encodeURIComponent(recherche)}` : "api/produits.json";
+      const produits = await (await fetch(adresse, { headers: { Accept: "application/json" } })).json();
+      afficher(produits.filter((produit) => produit.nom.toLowerCase().includes(recherche.toLowerCase())));
+    }
+
+    async function detail(id) {
+      const produit = await (await fetch(`api/produits/${id}.json`, { headers: { Accept: "application/json" } })).json();
+      document.getElementById("detail").textContent = `${produit.nom} : ${produit.description}`;
+    }
+
+    document.getElementById("recherche-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      charger(document.getElementById("recherche").value.trim());
+    });
+    charger();
+  </script>
+</body>
+</html>

@@ -62,15 +62,16 @@ def test_script_pytest(run91, pw_browser):
     for line in [
         "page.frame_locator('#editeur').locator('#note').fill('Livrer avant midi')",
         "expect(page.frame_locator('#editeur').locator('#note')).to_have_text('Livrer avant midi', use_inner_text=True)",
-        "page.locator('generateur-code').locator('#generer').click()",
-        "expect(page.locator('generateur-code').locator('#code')).to_have_value(re.compile('^PROMO-[0-9A-F]{4}-[0-9A-F]{4}$'))",
+        # Dans le composant web : le localisateur recommandé par Playwright y entre seul
+        "page.get_by_role('button', name='Générer un code', exact=True).click()",
+        "expect(page.get_by_role('textbox', name='Code promo', exact=True)).to_have_value(re.compile('^PROMO-[0-9A-F]{4}-[0-9A-F]{4}$'))",
         "expect(page.get_by_text(re.compile(re.escape('Code prêt à copier'), re.IGNORECASE)).first).to_be_visible()",
         f"page.locator({ROLE!r}).click()",
-        "page.locator('div[role=\"option\"]:has-text(\"ESS\")').click()",
+        "page.get_by_role('option', name='ESS', exact=True).click()",
         f"expect(page.locator({ROLE!r})).to_have_text('ESS', use_inner_text=True)",
         "# Fenêtre « Confirmer l'envoi de la commande ? » : réponse OK\n"
         "    page.once('dialog', lambda dialog: dialog.accept())\n"
-        "    page.locator('[data-test=\"envoyer\"]').click()",
+        "    page.get_by_role('button', name='Envoyer la commande', exact=True).click()",
         "expect(page.locator('body')).to_contain_text('Stock chargé', ignore_case=True, use_inner_text=True, timeout=10000)",
     ]:
         assert line in code, line

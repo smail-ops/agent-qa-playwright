@@ -20,8 +20,13 @@ outil de reconnaissance de texte :
 - le format : une adresse comme « 12 rue de la Paix, 75002 Paris » ;
 - le contexte : le nom qui suit « Bonjour », « Welcome » ou « Logged in as ».
 
+Avec la vision, les mêmes données sont cachées sous un rectangle noir sur la
+capture d'écran envoyée au modèle, ainsi que la valeur d'un champ de nom ou
+d'adresse (voir browser.vision_screenshot).
+
 Limites : un nom au milieu d'une phrase (« commande de Jean Dupont expédiée »)
-passe ; avec la vision, la capture d'écran envoyée au modèle n'est pas masquée.
+passe, et une donnée coupée en deux par la mise en forme de la page (une partie
+en gras) n'est pas cachée sur la capture.
 """
 
 from __future__ import annotations
@@ -59,6 +64,9 @@ _FIELD_HINT = re.compile(r'autocomplete="[^"]+"|(?:name|id|label|placeholder|ari
                          r"(?:prénom|prenom|nom|first.?name|last.?name|full.?name|surname|adresse|address|rue|street|"
                          r'ville|city|code postal|postal|zip)(?![a-z])[^"]*"', re.IGNORECASE)
 _FIELD_VALUE = re.compile(r'valeur="([^"]*)"')
+# Le nom d'un champ de nom ou d'adresse (name, id, libellé...), pour cacher sa valeur sur la capture d'écran
+PERSONAL_FIELD = re.compile(r"(?<![a-z])(?:prénom|prenom|nom|first.?name|last.?name|full.?name|surname|adresse|address|"
+                            r"rue|street|ville|city|code postal|postal|zip)(?![a-z])", re.IGNORECASE)
 
 
 def _digits(value: str) -> str:
@@ -130,6 +138,22 @@ def _mask_fields(text: str, known: str) -> str:
                                     else f'valeur="{FIELD_TOKEN}"', line)
         lines.append(line)
     return "".join(lines)
+
+
+def sensitive_values(text: str, known: str = "") -> list[str]:
+    """Les données personnelles du texte que mask() remplacerait, telles qu'elles s'affichent.
+
+    Avec la vision, elles sont cachées sur la capture d'écran envoyée au modèle (voir browser.vision_screenshot).
+    """
+    lowered = known.lower()
+    allowed = {key for _, _, key, _ in _found(known)} if known else set()
+    values = []
+    for start, end, key, token in _found(text):
+        value = text[start:end]
+        if key in allowed or (token in (NAME_TOKEN, ADDRESS_TOKEN) and value.lower() in lowered):
+            continue
+        values.append(value)
+    return list(dict.fromkeys(values))
 
 
 def mask(text: str, known: str = "") -> str:

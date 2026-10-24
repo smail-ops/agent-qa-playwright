@@ -6,7 +6,8 @@
 | Modèle | scripted (scénario simulé) |
 | Appels au modèle | aucun (démo sans IA) |
 | Vision | non |
-| Date | 23/10/2026 08:52 |
+| Navigateur | Chromium 141.0.7390.37 |
+| Date | 24/10/2026 07:41 |
 | Durée | 6 s |
 | Actions | 16 |
 

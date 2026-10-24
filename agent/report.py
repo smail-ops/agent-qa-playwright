@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from . import postman
 from .actions import STATE_LABELS, key_label
 from .anomalie import GRAVITES, NATURES
 
@@ -11,7 +12,7 @@ if TYPE_CHECKING:
     from .runner import RunResult, Step
 
 STATUS_LABELS = {"PASS": "✅ PASS", "FAIL": "❌ FAIL", "BLOQUE": "⚠️ BLOQUÉ"}
-VISION_LABELS = {True: "oui : le modèle voyait aussi la capture d'écran", False: "non"}
+VISION_LABELS = {True: "oui : le modèle voyait aussi la capture d'écran, données personnelles cachées", False: "non"}
 
 
 def _cell(text: object) -> str:
@@ -115,10 +116,26 @@ def build_report(run: RunResult) -> str:
         f"| Modèle | {run.provider} ({run.model}) |",
         f"| Appels au modèle | {'aucun (démo sans IA)' if run.provider == 'scripted' else run.model_calls} |",
         f"| Vision | {VISION_LABELS[run.vision]} |",
+    ]
+    if run.browser:
+        lines.append(f"| Navigateur | {_cell(run.browser)} |")
+    lines += [
         f"| Date | {run.started_at:%d/%m/%Y %H:%M} |",
         f"| Durée | {run.duration_s:.0f} s |",
         f"| Actions | {len(run.steps)} |",
     ]
+    if run.unique:
+        lines.append(f"| Valeur unique | `{run.unique}` : remplace {{unique}} du cas de test pendant cette exécution. "
+                     "Les tests générés créent leur propre valeur à chaque lancement |")
+    if getattr(run, "ads_blocked", 0):
+        count = run.ads_blocked
+        lines.append(f"| Publicités | {count} requête{'s' if count > 1 else ''} de régies publicitaires bloquée"
+                     f"{'s' if count > 1 else ''} : aucune publicité plein écran ne couvre la page |")
+    if run.case.session:
+        lines.append(f"| Session | « {run.case.session} » reprise : le test commence déjà connecté |")
+    if run.session_saved is not None:
+        lines.append(f"| Session enregistrée | « {run.case.save_session} » ({run.session_saved.as_posix()}) : les cas qui la "
+                     "reprennent commencent déjà connectés |")
     if memory_note(run):
         lines.append(f"| Mémoire | {_cell(memory_note(run))} |")
     if run.closed_shadow:
@@ -170,6 +187,18 @@ def build_report(run: RunResult) -> str:
         lines += ["", "## Tests générés", "", "Ils rejouent les actions réussies de l'agent, sans IA :", ""]
         lines += [f"- [`{path.name}`]({path.name}) : {tools}" for path, tools, _ in generated]
         lines += ["", "```"] + [f"{command} {path.name}" for path, _, command in generated if command] + ["```"]
+    if getattr(run, "postman_path", None) is not None:  # les appels d'API de la page, en collection Postman
+        count = len({(call.method, call.url, call.body) for call in run.api_calls or []})
+        lines += ["", "## Collection Postman", "",
+                  f"La page a fait {count} appel{'s' if count > 1 else ''} d'API pendant le test. Chacun est une requête "
+                  f"de [`{run.postman_path.name}`]({run.postman_path.name}), avec ses tests (statut, format, champs de la "
+                  f"réponse) ; l'adresse du site est dans [`{run.postman_env_path.name}`]({run.postman_env_path.name}). "
+                  "À importer dans Postman, ou à rejouer avec Newman :", "",
+                  "```", f"npx newman run {run.postman_path.name} -e {run.postman_env_path.name}", "```"]
+        secrets = postman.secret_variables(run)
+        if secrets:
+            lines += ["", f"Variables secrètes laissées vides, à remplir dans Postman ou à donner à Newman "
+                          f"(--env-var nom=valeur) : {', '.join(secrets)}."]
 
     lines += ["", "## Cas de test exécuté", "", "```markdown", _hidden(run, run.case.text), "```", ""]
     return "\n".join(lines)

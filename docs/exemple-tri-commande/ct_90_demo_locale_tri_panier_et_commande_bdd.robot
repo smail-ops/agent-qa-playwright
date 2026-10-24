@@ -6,6 +6,7 @@ Documentation     Scénario Gherkin généré automatiquement par agent-qa-playw
 ...               Même scénario que ct_90_demo_locale_tri_panier_et_commande.feature : Robot Framework comprend
 ...               Étant donné que, Quand, Alors et Et. Chaque phrase est un mot-clé, plus bas.
 Library           SeleniumLibrary    timeout=${DELAI}    implicit_wait=${DELAI}
+Suite Setup       Charger les mots de passe
 Test Teardown     Close Browser
 
 *** Variables ***
@@ -20,7 +21,7 @@ CT-90 Démo locale : tri, panier et commande
     [Tags]    CT-90
     Étant donné que je suis sur la page "http://localhost:8000/index.html"
     Quand je saisis "standard_user" dans le champ "Identifiant"
-    Et je saisis "secret_sauce" dans le champ "Mot de passe"
+    Et je saisis le mot de passe "MOT_DE_PASSE_LOCALHOST" dans le champ "Mot de passe"
     Et je clique sur le bouton "Connexion"
     Alors la page affiche 3 fois "Ajouter au panier"
     Quand je choisis "Prix croissant" dans la liste "Trier"
@@ -41,8 +42,8 @@ je suis sur la page "${url}"
 je saisis "${texte}" dans le champ "Identifiant"
     Input Text    css:#user-name    ${texte}
 
-je saisis "${texte}" dans le champ "Mot de passe"
-    Input Text    css:#password    ${texte}
+je saisis le mot de passe "${variable}" dans le champ "Mot de passe"
+    Input Password    css:#password    %{${variable}}
 
 je clique sur le bouton "Connexion"
     Click Element    css:[data-test="login-button"]
@@ -82,8 +83,8 @@ le champ "Code postal" est vide
 Ouvrir le navigateur
     [Documentation]    Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.
     ...    Avec Chrome, le gestionnaire de mots de passe est coupé (variable OPTIONS_CHROME) : après une connexion
-    ...    avec un mot de passe connu des fuites de données, comme secret_sauce, Chrome afficherait une alerte
-    ...    « mot de passe compromis » qui interrompt le test.
+    ...    avec un mot de passe connu des fuites de données, comme celui du site d'entraînement SauceDemo, Chrome
+    ...    afficherait une alerte « mot de passe compromis » qui interrompt le test.
     [Arguments]    ${url}
     ${chrome}=    Evaluate    $BROWSER.lower().replace(" ", "") in ('chrome', 'googlechrome', 'gc', 'headlesschrome')
     IF    ${chrome}
@@ -134,3 +135,8 @@ Les textes visibles se suivent
         Should Be True    $position >= 0    msg=Ordre non respecté : « ${texte} » n'est pas affiché à la place attendue.
         ${debut}=    Evaluate    $position + len($cherche)
     END
+
+Charger les mots de passe
+    [Documentation]    Lit le fichier .env du projet : l'agent y a rangé les mots de passe de test (%{MOT_DE_PASSE_...}),
+    ...    qui ne sont jamais écrits dans ce fichier.
+    Evaluate    dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))    modules=dotenv

@@ -31,7 +31,8 @@ jobs:
         run: pip install -r requirements.txt
       - name: Installer Chromium pour Playwright
         run: python -m playwright install --with-deps chromium
-      - name: Générer les tests avec les six démos, puis les rejouer avec le vrai SeleniumLibrary
+      # CT-95 enregistre la session « demo » que reprend CT-96 : ils se lancent dans cet ordre
+      - name: Générer les tests avec les dix démos, puis les rejouer avec le vrai SeleniumLibrary
         run: |
           python -m http.server 8000 -d demo_site &
           sleep 1
@@ -41,6 +42,10 @@ jobs:
           python -m agent cas_de_test/demo/CT-92_demo_inscription_lettre.md --provider scripted --scenario cas_de_test/demo/scenario_CT-92.json
           python -m agent cas_de_test/demo/CT-93_demo_clavier_souris.md --provider scripted --scenario cas_de_test/demo/scenario_CT-93.json
           python -m agent cas_de_test/demo/CT-94_demo_onglets_fichiers.md --provider scripted --scenario cas_de_test/demo/scenario_CT-94.json
+          python -m agent cas_de_test/demo/CT-95_demo_compte_adresse_unique.md --provider scripted --scenario cas_de_test/demo/scenario_CT-95.json
+          python -m agent cas_de_test/demo/CT-96_demo_espace_client_sans_connexion.md --provider scripted --scenario cas_de_test/demo/scenario_CT-96.json
+          python -m agent cas_de_test/demo/CT-97_demo_catalogue_api.md --provider scripted --scenario cas_de_test/demo/scenario_CT-97.json
+          python -m agent cas_de_test/demo/CT-98_demo_offres_cadre_tiers.md --provider scripted --scenario cas_de_test/demo/scenario_CT-98.json
           robot --variable BROWSER:headlesschrome --outputdir resultats-robot rapports/*/*.robot
       # Le journal d'un job n'est lisible qu'une fois connecté : les annotations, elles, s'affichent sur la page du run
       - name: Afficher les tests Robot en échec sur la page du run
@@ -52,3 +57,50 @@ jobs:
         with:
           name: journal-robot
           path: resultats-robot
+
+  postman:
+    name: Collection Postman rejouée avec Newman
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+      - name: Installer Chromium pour Playwright
+        run: python -m playwright install --with-deps chromium
+      - name: Générer la collection avec la démo CT-97, puis la rejouer avec Newman
+        run: |
+          python -m http.server 8000 -d demo_site &
+          sleep 1
+          python -m agent cas_de_test/demo/CT-97_demo_catalogue_api.md --provider scripted --scenario cas_de_test/demo/scenario_CT-97.json
+          npx --yes newman@6 run rapports/*/*.postman_collection.json -e rapports/*/*.postman_environment.json --reporters cli,json --reporter-json-export resultats-newman/newman.json
+      - name: Afficher les requêtes en échec sur la page du run
+        if: failure()
+        run: python .github/newman_echecs.py resultats-newman/newman.json
+
+  navigateurs:
+    name: Firefox, WebKit et iPhone émulé
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+      - name: Installer Chromium, Firefox et WebKit pour Playwright
+        run: python -m playwright install --with-deps chromium firefox webkit
+      - name: Lancer les démos avec Firefox, WebKit et un iPhone émulé, puis rejouer les tests pytest générés
+        run: |
+          python -m http.server 8000 -d demo_site &
+          sleep 1
+          python -m agent cas_de_test/demo/CT-00_demo_locale.md --provider scripted --scenario cas_de_test/demo/scenario_CT-00.json --navigateur firefox --out rapports/firefox
+          python -m agent cas_de_test/demo/CT-97_demo_catalogue_api.md --provider scripted --scenario cas_de_test/demo/scenario_CT-97.json --navigateur firefox --out rapports/firefox
+          python -m agent cas_de_test/demo/CT-00_demo_locale.md --provider scripted --scenario cas_de_test/demo/scenario_CT-00.json --navigateur webkit --out rapports/webkit
+          python -m agent cas_de_test/demo/CT-95_demo_compte_adresse_unique.md --provider scripted --scenario cas_de_test/demo/scenario_CT-95.json --navigateur webkit --appareil "iPhone 15" --out rapports/iphone
+          python -m agent cas_de_test/demo/CT-96_demo_espace_client_sans_connexion.md --provider scripted --scenario cas_de_test/demo/scenario_CT-96.json --navigateur webkit --appareil "iPhone 15" --out rapports/iphone
+          pytest -p no:cacheprovider rapports/firefox --browser firefox
+          pytest -p no:cacheprovider rapports/webkit --browser webkit
+          pytest -p no:cacheprovider rapports/iphone --browser webkit

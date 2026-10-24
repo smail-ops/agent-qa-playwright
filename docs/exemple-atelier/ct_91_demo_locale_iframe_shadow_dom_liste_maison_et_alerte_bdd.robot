@@ -84,8 +84,8 @@ j'attends jusqu'à ${secondes:\d+} secondes que la page affiche "${texte}"
 Ouvrir le navigateur
     [Documentation]    Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.
     ...    Avec Chrome, le gestionnaire de mots de passe est coupé (variable OPTIONS_CHROME) : après une connexion
-    ...    avec un mot de passe connu des fuites de données, comme secret_sauce, Chrome afficherait une alerte
-    ...    « mot de passe compromis » qui interrompt le test.
+    ...    avec un mot de passe connu des fuites de données, comme celui du site d'entraînement SauceDemo, Chrome
+    ...    afficherait une alerte « mot de passe compromis » qui interrompt le test.
     [Arguments]    ${url}
     ${chrome}=    Evaluate    $BROWSER.lower().replace(" ", "") in ('chrome', 'googlechrome', 'gc', 'headlesschrome')
     IF    ${chrome}

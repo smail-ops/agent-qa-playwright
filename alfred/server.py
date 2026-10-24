@@ -7,7 +7,9 @@ Routes :
     GET  /api/cases                     cas de test du dossier cas_de_test/
     POST /api/cases                     enregistre un cas de test écrit dans la page
     POST /api/missions                  lance une mission (« memoire »: false pour tout refaire avec l'IA,
-                                        « vision »: true pour envoyer aussi la capture d'écran au modèle)
+                                        « vision »: true pour envoyer aussi la capture d'écran au modèle,
+                                        « navigateur »: chromium, firefox ou webkit, « appareil »: "iPhone 15"...)
+    POST /api/relance                   relance, l'un après l'autre, les cas dont la dernière exécution n'a pas réussi
     POST /api/propositions/stories      analyse un site et propose des user stories (critères en Gherkin)
     POST /api/propositions/cas          propose des cas de test pour une user story
     POST /api/propositions/enregistrer  enregistre les propositions choisies dans cas_de_test/
@@ -38,6 +40,7 @@ from playwright.sync_api import Error as PlaywrightError
 from agent import documentation
 from agent.analyse import AnalysisError, SiteAnalysis, analyse_site
 from agent.memoire import Memory
+from agent.navigateur import choisir
 from agent.propositions import (
     case_from_dict,
     propose_cases,
@@ -59,7 +62,7 @@ from agent.user_stories import UserStory, feature_cases, story_from_dict
 
 from . import maitre, narration
 from .conversation import MAX_TEXT, build_context, converse, default_url, secrets_of
-from .missions import MissionBusy, MissionManager
+from .missions import MAX_SERIES, MissionBusy, MissionManager, Options, failed_cases
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 FONT_FILE = re.compile(r"[a-z0-9-]+\.woff")
@@ -68,7 +71,9 @@ CASE_CODE = re.compile(r"\s*([A-Z]{2,}-\d+)\b")
 MAX_BODY = 200_000  # octets
 MAX_PAUSE = 30.0  # secondes
 TEXT = "text/plain; charset=utf-8"
-MISSION_FILE_TYPES = {".png": "image/png", ".md": TEXT, ".py": TEXT, ".robot": TEXT, ".feature": TEXT}
+MISSION_FILE_TYPES = {".png": "image/png", ".md": TEXT, ".py": TEXT, ".robot": TEXT, ".feature": TEXT,
+                      ".json": "application/json; charset=utf-8"}
+POSTMAN_FILES = (".postman_collection.json", ".postman_environment.json")  # les seuls .json servis (pas resultat.json)
 DEMO_PROPOSALS = "propositions_demo.json"  # réponses enregistrées : propositions de la démo sans IA
 DEMO_ORIGIN = "http://localhost:8000"
 MAX_SAVED = 10  # propositions enregistrées en une fois
@@ -228,6 +233,8 @@ class AlfredHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/missions":
             return self._start_mission()
+        if path == "/api/relance":
+            return self._relaunch()
         if path == "/api/cases":
             return self._save_case()
         if path == "/api/maitre":
@@ -273,6 +280,17 @@ class AlfredHandler(BaseHTTPRequestHandler):
 
     # --- Missions ----------------------------------------------------------------
 
+    @staticmethod
+    def _options(body: dict) -> Options:
+        """Les réglages d'une mission : fenêtre, pause, mémoire, vision, navigateur et appareil (vérifiés)."""
+        try:
+            navigateur, appareil = choisir(str(body.get("navigateur") or "chromium"), str(body.get("appareil") or "") or None)
+        except ValueError as exc:  # « navigateur inconnu : ... » devient une phrase
+            raise ValueError(str(exc)[:1].upper() + str(exc)[1:]) from None
+        return Options(headed=bool(body.get("headed")), pause_s=min(max(float(body.get("pause") or 0), 0.0), MAX_PAUSE),
+                       use_memory=body.get("memoire", True) is not False, vision=body.get("vision") is True,
+                       navigateur=navigateur, appareil=appareil)
+
     def _start_mission(self):
         try:
             body = self._body()
@@ -280,15 +298,44 @@ class AlfredHandler(BaseHTTPRequestHandler):
             if body.get("url"):  # champ « Site à tester » : même cas, autre adresse
                 case = case.with_url(str(body["url"]))
             provider = self._provider_from(body.get("provider", "gemini"), scenario)
-            pause = min(max(float(body.get("pause") or 0), 0.0), MAX_PAUSE)
-            mission = self.server.missions.start(case, provider, headed=bool(body.get("headed")), pause_s=pause,
-                                                 use_memory=body.get("memoire", True) is not False,
-                                                 vision=body.get("vision") is True)
+            options = self._options(body)
+            mission = self.server.missions.start(case, provider, headed=options.headed, pause_s=options.pause_s,
+                                                 use_memory=options.use_memory, vision=options.vision,
+                                                 navigateur=options.navigateur, appareil=options.appareil)
         except MissionBusy as exc:
             return self._json(409, {"error": str(exc)})
         except (ValueError, TypeError, ProviderError) as exc:
             return self._json(400, {"error": str(exc)})
         self._json(201, {"id": mission.id, "events": f"/api/missions/{mission.id}/events"})
+
+    def _relaunch(self):
+        """« Relance les tests en échec » : les cas dont la dernière exécution n'a pas réussi, l'un après l'autre."""
+        try:
+            body = self._body()
+            options = self._options(body)
+            name = str(body.get("provider") or "gemini")
+            cases = list_cases(self.server.cases_dir, self.server.memory)
+            failed = failed_cases(cases, read_results(self.server.missions.reports_dir, limit=500))
+            items, skipped = [], 0
+            for entry in failed:
+                case, path = load_case(self.server.cases_dir, entry["id"])
+                scenario = scenario_for(path, case)
+                if name == "scripted" and scenario is None:  # la démo sans IA ne rejoue que les cas qui ont un scénario
+                    skipped += 1
+                    continue
+                items.append((case, self._provider_from(name, scenario)))
+            if not items:
+                say = narration.nothing_to_relaunch_speech() if not failed else (
+                    "Les tests en échec n'ont pas de démo sans IA : choisissez Gemini ou Claude pour les relancer.")
+                return self._json(200, {"cas": [], "say": say})
+            mission = self.server.missions.start_series(items, options)
+        except MissionBusy as exc:
+            return self._json(409, {"error": str(exc)})
+        except (ValueError, TypeError, ProviderError) as exc:
+            return self._json(400, {"error": str(exc)})
+        titles = [case.title for case, _ in items[:MAX_SERIES]]
+        self._json(201, {"id": mission.id, "events": f"/api/missions/{mission.id}/events", "cas": titles,
+                         "say": narration.relaunch_speech(titles, skipped)})
 
     def _case_from(self, body: dict) -> tuple[TestCase, Path | None]:
         if body.get("case"):
@@ -313,6 +360,8 @@ class AlfredHandler(BaseHTTPRequestHandler):
         if mission is None:
             return self._json(404, {"error": "Mission inconnue."})
         mission.stop_event.set()
+        if mission.serie is not None:  # relance des tests en échec : les missions suivantes ne partent pas
+            mission.serie.stop.set()
         self._json(202, {"stopping": not mission.finished})
 
     def _events(self, mission_id: str):
@@ -345,11 +394,20 @@ class AlfredHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return  # la page a été fermée
 
+    @staticmethod
+    def _servable(path: Path | None, root: Path | None) -> bool:
+        """Un fichier produit par l'agent, dans le dossier de l'exécution : rapport, captures, tests, collection Postman."""
+        if path is None or root is None or not path.is_relative_to(root) or path.suffix not in MISSION_FILE_TYPES:
+            return False
+        if path.suffix == ".json" and not path.name.endswith(POSTMAN_FILES):
+            return False
+        return path.is_file()
+
     def _mission_file(self, mission_id: str, relative: str):
         mission = self.server.missions.missions.get(mission_id)
         root = mission.out_dir.resolve() if mission else None
         path = (root / relative).resolve() if root else None
-        if path is None or not path.is_relative_to(root) or path.suffix not in MISSION_FILE_TYPES or not path.is_file():
+        if not self._servable(path, root):
             return self._json(404, {"error": "Fichier introuvable."})
         self._send_file(path, MISSION_FILE_TYPES[path.suffix])
 
@@ -357,7 +415,7 @@ class AlfredHandler(BaseHTTPRequestHandler):
         """Un fichier d'une exécution passée, sans jamais sortir du dossier des rapports."""
         root = self.server.missions.reports_dir.resolve()
         path = (root / folder / name).resolve()
-        if not path.is_relative_to(root) or path.suffix not in MISSION_FILE_TYPES or not path.is_file():
+        if not self._servable(path, root):
             return self._json(404, {"error": "Fichier introuvable."})
         self._send_file(path, MISSION_FILE_TYPES[path.suffix])
 
@@ -517,7 +575,8 @@ class AlfredHandler(BaseHTTPRequestHandler):
                 done = sum(1 for event in current.events if event["type"] == "step")
                 mission = f"{current.case.title} ({done} étape{'s' if done > 1 else ''} réalisée{'s' if done > 1 else ''})"
             files = [str(name) for name in body.get("fichiers") or [] if str(name) in ("rapport", "anomalie", "pytest",
-                                                                                        "robot", "gherkin", "robot_bdd")]
+                                                                                        "robot", "gherkin", "robot_bdd",
+                                                                                        "postman")]
             history = body.get("historique") if isinstance(body.get("historique"), list) else []
             results = read_results(self.server.missions.reports_dir, limit=100)  # pour retrouver un ancien rapport
             context = build_context(cases, results[:12], selection, mission, maitre.nom_du_maitre(), files)
