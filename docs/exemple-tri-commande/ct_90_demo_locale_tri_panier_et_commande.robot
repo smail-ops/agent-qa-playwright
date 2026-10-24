@@ -4,6 +4,7 @@ Documentation     Test généré automatiquement par agent-qa-playwright.
 ...               Rejoue les actions réussies de l'agent avec Selenium, sans IA.
 # implicit_wait : avant d'agir, Selenium attend que l'élément apparaisse, comme Playwright.
 Library           SeleniumLibrary    timeout=${DELAI}    implicit_wait=${DELAI}
+Suite Setup       Charger les mots de passe
 Test Teardown     Close Browser
 
 *** Variables ***
@@ -17,16 +18,16 @@ ${OPTIONS_CHROME}    add_experimental_option("prefs", {"credentials_enable_servi
 CT-90 Démo locale : tri, panier et commande
     Ouvrir le navigateur    http://localhost:8000/index.html
     Input Text    css:#user-name    standard_user
-    Input Text    css:#password    secret_sauce
-    Click Element    css:[data-test="login-button"]
+    Input Password    css:#password    %{MOT_DE_PASSE_LOCALHOST}
+    Cliquer    css:[data-test="login-button"]
     La page affiche ce nombre de fois    Ajouter au panier    3
     Select From List By Value    css:[data-test="sort"]    price
     La page affiche dans l'ordre    Lampe de vélo    T-shirt    Sac à dos
-    Click Element    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
+    Cliquer    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
     La page affiche ce nombre de fois    Retirer    1
-    Click Element    css:[data-test="checkout"]
+    Cliquer    css:[data-test="checkout"]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Element Should Be Disabled    css:[data-test="continuer"]
-    Click Element    css:[data-test="cgu"]
+    Cliquer    css:[data-test="cgu"]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Checkbox Should Be Selected    css:[data-test="cgu"]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Element Should Be Enabled    css:[data-test="continuer"]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Textfield Value Should Be    css:#code-postal    ${EMPTY}
@@ -35,8 +36,8 @@ CT-90 Démo locale : tri, panier et commande
 Ouvrir le navigateur
     [Documentation]    Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.
     ...    Avec Chrome, le gestionnaire de mots de passe est coupé (variable OPTIONS_CHROME) : après une connexion
-    ...    avec un mot de passe connu des fuites de données, comme secret_sauce, Chrome afficherait une alerte
-    ...    « mot de passe compromis » qui interrompt le test.
+    ...    avec un mot de passe connu des fuites de données, comme celui du site d'entraînement SauceDemo, Chrome
+    ...    afficherait une alerte « mot de passe compromis » qui interrompt le test.
     [Arguments]    ${url}
     ${chrome}=    Evaluate    $BROWSER.lower().replace(" ", "") in ('chrome', 'googlechrome', 'gc', 'headlesschrome')
     IF    ${chrome}
@@ -45,6 +46,13 @@ Ouvrir le navigateur
         Open Browser    ${url}    ${BROWSER}
     END
     Set Window Size    1280    800
+
+Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 
 La page affiche ce nombre de fois
     [Documentation]    Attend que le texte soit affiché exactement ce nombre de fois.
@@ -87,3 +95,8 @@ Les textes visibles se suivent
         Should Be True    $position >= 0    msg=Ordre non respecté : « ${texte} » n'est pas affiché à la place attendue.
         ${debut}=    Evaluate    $position + len($cherche)
     END
+
+Charger les mots de passe
+    [Documentation]    Lit le fichier .env du projet : l'agent y a rangé les mots de passe de test (%{MOT_DE_PASSE_...}),
+    ...    qui ne sont jamais écrits dans ce fichier.
+    Evaluate    dotenv.load_dotenv(dotenv.find_dotenv(usecwd=True))    modules=dotenv

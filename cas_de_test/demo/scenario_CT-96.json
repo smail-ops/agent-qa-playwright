@@ -1,0 +1,6 @@
+[
+  {"action": "check_text", "args": {"text": "Bonjour Alfred"}, "reason": "Résultat attendu : déjà connecté avec la session de CT-95"},
+  {"action": "click", "target": "[data-test=\"commandes\"]", "reason": "Étape 1 : ouverture des commandes"},
+  {"action": "check_text", "args": {"text": "Aucune commande pour l'instant"}, "reason": "Résultat attendu : liste des commandes vide"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Espace client ouvert sans se reconnecter, avec la session de CT-95."}, "reason": "Les résultats attendus sont vérifiés"}
+]

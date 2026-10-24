@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .actions import Action, parse_action
+from .donnees import masquer_args
 
 if TYPE_CHECKING:
     from .browser import Element, Observation
@@ -74,15 +75,19 @@ class Memory:
         data = self.load(case)
         return {"saved_at": data.get("saved_at"), "steps": len(data["steps"])} if data else None
 
-    def save(self, case: TestCase, steps: list[Step], model: str, summary: str) -> Path:
-        """Enregistre le parcours d'une exécution réussie : seulement les étapes qui ont fonctionné."""
+    def save(self, case: TestCase, steps: list[Step], model: str, summary: str, unique: str | None = None) -> Path:
+        """Enregistre le parcours d'une exécution réussie : seulement les étapes qui ont fonctionné.
+
+        unique : la valeur de {unique} pendant cette exécution. La mémoire garde {unique} à sa place,
+        pour que le prochain rejeu crée sa propre valeur (voir donnees.py).
+        """
         saved = []
         for step in steps[1:]:  # la première étape, l'ouverture de l'URL, est refaite à chaque exécution
             action, result = step.action, step.result
             if action is None or not result.ok or action.name == "finish" or step.source == "programme":
                 continue  # le bandeau de cookies est accepté par le programme à chaque exécution
-            entry = {"action": action.name, "args": {k: v for k, v in action.args.items() if k != "ref"},
-                     "reason": action.reason}
+            args = masquer_args({k: v for k, v in action.args.items() if k != "ref"}, unique)
+            entry = {"action": action.name, "args": args, "reason": action.reason}
             if "ref" in action.args:
                 if result.element is None:
                     continue

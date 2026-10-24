@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Offres</title>
+  <style>
+    body { font-family: sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    #resultat { min-height: 1.5em; }
+    /* Le cadre de consentement couvre toute la page, comme ceux des outils de consentement */
+    #sp_message_iframe_948372 { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 10; }
+  </style>
+  <!-- Une régie publicitaire (adresse fictive) : l'agent bloque sa requête, comme celles des vraies publicités -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/demo-agent-qa.js"></script>
+</head>
+<body>
+  <h1>Offres du moment</h1>
+  <p>Le bandeau de consentement vient d'un outil tiers : il s'affiche dans un cadre (iframe) posé sur la page.</p>
+  <button type="button" data-test="offres">Voir les offres</button>
+  <p id="resultat" role="status"></p>
+  <script>
+    if (!document.cookie.includes("consentement=oui")) {
+      const cadre = document.createElement("iframe");
+      cadre.id = "sp_message_iframe_948372";  // id fabriqué, différent à chaque visite sur un vrai site : le titre est stable
+      cadre.title = "SP Consent Message";
+      cadre.src = "consentement.html";
+      document.body.append(cadre);
+      window.addEventListener("message", (event) => {
+        if (event.data === "consentement:oui") {
+          document.cookie = "consentement=oui; path=/";
+          cadre.remove();
+        }
+      });
+    }
+    document.querySelector("[data-test=offres]").addEventListener("click", () => {
+      document.getElementById("resultat").textContent = "3 offres disponibles";
+    });
+  </script>
+</body>
+</html>

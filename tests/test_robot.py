@@ -40,15 +40,18 @@ def run_scenario(pw_page, demo_url, tmp_path, scenario):
     return Agent(ScriptedProvider(scenario)).run(pw_page, case, tmp_path / "rapport")
 
 
-def run_robot(code: str, tmp_path: Path, *options: str) -> subprocess.CompletedProcess:
-    """Exécute un test .robot avec Robot Framework et le double de SeleniumLibrary."""
+def run_robot(code: str, tmp_path: Path, *options: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    """Exécute un test .robot avec Robot Framework et le double de SeleniumLibrary.
+
+    cwd : le dossier d'où Robot est lancé (la racine du projet pour les tests générés : sessions/ y est cherché).
+    """
     pytest.importorskip("robot")
     tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "test_genere.robot"
     path.write_text(code, encoding="utf-8")
     command = [sys.executable, "-m", "robot", "--pythonpath", str(DOUBLE_DIR), "--outputdir", str(tmp_path / "robot"),
                "--consolecolors", "off", *options, str(path)]
-    return subprocess.run(command, capture_output=True, text=True, timeout=120)
+    return subprocess.run(command, capture_output=True, text=True, timeout=120, cwd=cwd)
 
 
 @pytest.mark.parametrize(
@@ -86,10 +89,11 @@ def test_test_robot_genere(pw_page, demo_url, tmp_path):
     assert f"    Ouvrir le navigateur    {demo_url}/index.html\n    Input Text    css:#user-name    standard_user" in code
     assert code.count("\nOuvrir le navigateur\n") == 1 and "    Set Window Size    1280    800\n" in code
     assert "    Input Text    css:#user-name    standard_user" in code
-    assert '    Click Element    css:[data-test="login-button"]' in code
+    assert '    Cliquer    css:[data-test="login-button"]' in code
+    assert code.count("\nCliquer\n") == 1  # le mot-clé, écrit une fois dans le fichier
     assert "    Wait Until Location Contains    inventory" in code
     assert "    La page affiche    Produits" in code  # casse exacte relevée sur la page
-    assert '    Click Element    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]' in code
+    assert '    Cliquer    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]' in code
     assert '    Select From List By Value    css:[data-test="sort"]    price' in code  # valeur réelle de l'option
     assert "    La page n'affiche pas    Paiement validé" in code
     assert "Wait Until Page Contains" not in code  # compterait aussi le texte caché

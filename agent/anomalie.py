@@ -54,9 +54,12 @@ N'invente aucun fait. Écris en français."""
 
 
 def needs_analysis(run: RunResult) -> bool:
-    """Fiche d'anomalie pour un échec, ou pour un blocage qui ne vient ni d'un arrêt demandé ni du modèle."""
+    """Fiche d'anomalie pour un échec, ou pour un blocage qui ne vient ni d'un arrêt demandé, ni du modèle,
+    ni d'une session à enregistrer d'abord : ces exécutions sont à relancer, il n'y a pas d'anomalie à décrire."""
     if run.status == "FAIL":
         return True
+    if getattr(run, "interruption", None):
+        return False
     return run.status == "BLOQUE" and run.summary != STOPPED_SUMMARY and not run.summary.startswith("Le modèle n'a pas pu")
 
 
@@ -200,8 +203,8 @@ def build_diagnosis_request(run: RunResult, lecture: documentation.Lecture | Non
     if lecture is not None and lecture.extraits:
         docs = ("## Documentation officielle de Playwright (extraits numérotés)\n\n"
                 + "\n\n".join(extrait.to_prompt() for extrait in lecture.extraits) + "\n\n")
-    case_text = run.coffre.hide(run.case.text) if run.coffre is not None else run.case.text  # sans mot de passe
-    return f"## Cas de test\n{case_text}\n\n{mask(facts, run.case.text)}{docs}Rédige le diagnostic en JSON."
+    hide = run.coffre.hide if run.coffre is not None else (lambda text: text)  # sans mot de passe, même affiché
+    return f"## Cas de test\n{hide(run.case.text)}\n\n{mask(hide(facts), run.case.text)}{docs}Rédige le diagnostic en JSON."
 
 
 def parse_diagnosis(raw: str) -> dict:

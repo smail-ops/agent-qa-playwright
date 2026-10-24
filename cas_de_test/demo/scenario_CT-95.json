@@ -1,0 +1,7 @@
+[
+  {"action": "fill", "target": "#prenom", "args": {"text": "Alfred"}, "reason": "Étape 1 : saisie du prénom"},
+  {"action": "fill", "target": "#email", "args": {"text": "alfred.{unique}@exemple.fr"}, "reason": "Étape 2 : une adresse nouvelle à chaque exécution"},
+  {"action": "click", "target": "[data-test=\"creer\"]", "reason": "Étape 3 : création du compte"},
+  {"action": "check_text", "args": {"text": "Compte créé pour alfred.{unique}@exemple.fr"}, "reason": "Résultat attendu : compte créé avec l'adresse de cette exécution"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Compte créé avec une adresse unique à cette exécution."}, "reason": "Le résultat attendu est vérifié"}
+]

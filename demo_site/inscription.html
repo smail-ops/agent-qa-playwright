@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Créer un compte</title>
+  <style>
+    body { font-family: sans-serif; max-width: 460px; margin: 40px auto; padding: 0 16px; }
+    label { display: block; margin-top: 14px; }
+    input { display: block; width: 100%; margin-top: 4px; padding: 8px; box-sizing: border-box; }
+    button { margin-top: 18px; padding: 8px 16px; }
+    #message { min-height: 1.5em; }
+  </style>
+</head>
+<body>
+  <h1>Créer un compte</h1>
+  <p>Une adresse e-mail ne sert qu'à un seul compte : un test qui crée un compte a besoin d'une adresse nouvelle à chaque exécution.</p>
+  <form id="inscription" novalidate>
+    <label for="prenom">Prénom</label>
+    <input id="prenom" name="prenom" autocomplete="off">
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" autocomplete="off">
+    <button type="submit" data-test="creer">Créer mon compte</button>
+  </form>
+  <p id="message" role="status"></p>
+  <p><a id="espace" href="espace_client.html" hidden>Aller à mon espace client</a></p>
+  <script>
+    // Les adresses déjà utilisées dans ce navigateur : une seconde inscription avec la même adresse est refusée,
+    // comme sur un vrai site, où l'adresse est déjà enregistrée sur le serveur.
+    const lire = (cle, defaut) => { try { return JSON.parse(localStorage.getItem(cle)) ?? defaut; } catch { return defaut; } };
+    document.getElementById("inscription").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const prenom = document.getElementById("prenom").value.trim();
+      const email = document.getElementById("email").value.trim().toLowerCase();
+      const message = document.getElementById("message");
+      const comptes = lire("comptes", []);
+      if (!prenom || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        message.textContent = "Indiquez un prénom et une adresse e-mail valide.";
+      } else if (comptes.includes(email)) {
+        message.textContent = "Cette adresse e-mail est déjà utilisée.";
+      } else {
+        comptes.push(email);
+        localStorage.setItem("comptes", JSON.stringify(comptes));
+        // La session : un cookie et le client gardé dans le stockage local, comme beaucoup d'applications
+        localStorage.setItem("client", JSON.stringify({ prenom, email }));
+        document.cookie = `session_demo=${encodeURIComponent(prenom)}; path=/`;
+        message.textContent = `Compte créé pour ${email}`;
+        document.getElementById("espace").hidden = false;
+      }
+    });
+  </script>
+</body>
+</html>

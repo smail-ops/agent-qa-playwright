@@ -62,15 +62,16 @@ def test_script_pytest(run91, pw_browser):
     for line in [
         "page.frame_locator('#editeur').locator('#note').fill('Livrer avant midi')",
         "expect(page.frame_locator('#editeur').locator('#note')).to_have_text('Livrer avant midi', use_inner_text=True)",
-        "page.locator('generateur-code').locator('#generer').click()",
-        "expect(page.locator('generateur-code').locator('#code')).to_have_value(re.compile('^PROMO-[0-9A-F]{4}-[0-9A-F]{4}$'))",
+        # Dans le composant web : le localisateur recommandé par Playwright y entre seul
+        "page.get_by_role('button', name='Générer un code', exact=True).click()",
+        "expect(page.get_by_role('textbox', name='Code promo', exact=True)).to_have_value(re.compile('^PROMO-[0-9A-F]{4}-[0-9A-F]{4}$'))",
         "expect(page.get_by_text(re.compile(re.escape('Code prêt à copier'), re.IGNORECASE)).first).to_be_visible()",
         f"page.locator({ROLE!r}).click()",
-        "page.locator('div[role=\"option\"]:has-text(\"ESS\")').click()",
+        "page.get_by_role('option', name='ESS', exact=True).click()",
         f"expect(page.locator({ROLE!r})).to_have_text('ESS', use_inner_text=True)",
         "# Fenêtre « Confirmer l'envoi de la commande ? » : réponse OK\n"
         "    page.once('dialog', lambda dialog: dialog.accept())\n"
-        "    page.locator('[data-test=\"envoyer\"]').click()",
+        "    page.get_by_role('button', name='Envoyer la commande', exact=True).click()",
         "expect(page.locator('body')).to_contain_text('Stock chargé', ignore_case=True, use_inner_text=True, timeout=10000)",
     ]:
         assert line in code, line
@@ -87,17 +88,17 @@ def test_test_robot(run91, tmp_path):
     Wait Until Keyword Succeeds    ${{DELAI}}    200ms    Le texte de l'élément est    css:#note    Livrer avant midi
     Unselect Frame
     Wait Until Page Contains Element    {SHADOW}('#generer')
-    Click Element    {SHADOW}('#generer')
+    Cliquer    {SHADOW}('#generer')
     Wait Until Keyword Succeeds    ${{DELAI}}    200ms    La valeur correspond au motif    {SHADOW}('#code')    ^PROMO-[0-9A-F]{{4}}-[0-9A-F]{{4}}$
     La page affiche    Code prêt à copier
-    Click Element    xpath:{ROLE[6:]}
-    Click Element    xpath://div[@role="option"][contains(normalize-space(.), "ESS")]
+    Cliquer    xpath:{ROLE[6:]}
+    Cliquer    xpath://div[@role="option"][contains(normalize-space(.), "ESS")]
     Wait Until Keyword Succeeds    ${{DELAI}}    200ms    Le texte de l'élément est    xpath:{ROLE[6:]}    ESS
     La page affiche    Rôle : ESS
-    Click Element    css:[data-test="envoyer"]
+    Cliquer    css:[data-test="envoyer"]
     Accepter la fenêtre    Confirmer l'envoi de la commande ?
     La page affiche    Commande envoyée
-    Click Element    css:[data-test="charger"]
+    Cliquer    css:[data-test="charger"]
     Wait Until Keyword Succeeds    10s    500ms    Le texte visible contient    Stock chargé
     La page affiche    Stock chargé : 12 articles
 """
@@ -155,7 +156,7 @@ def test_fenetre_refusee_dans_les_tests_generes(pw_page, pw_browser, demo_url, t
     exec(compile(code, "test_genere.py", "exec"), namespace)
     run_on_new_page(pw_browser, namespace[f"test_{run.case.slug}"])
     robot = generate_robot(run)
-    assert "    Click Element    css:[data-test=\"envoyer\"]\n    Refuser la fenêtre    Confirmer l'envoi de la commande ?\n" in robot
+    assert "    Cliquer    css:[data-test=\"envoyer\"]\n    Refuser la fenêtre    Confirmer l'envoi de la commande ?\n" in robot
     assert "${affiche}=    Handle Alert    DISMISS" in robot
     assert "Et je refuse la fenêtre \"Confirmer l'envoi de la commande ?\"" in generate_feature(run)
 

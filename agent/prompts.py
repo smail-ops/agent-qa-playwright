@@ -58,6 +58,7 @@ Règles :
 12. Un mot de passe du cas de test est remplacé par un repère : « [mot de passe] » (ou « [mot de passe 1] », « [mot de passe 2] »). Saisis ce repère tel quel avec fill : le programme tape le vrai mot de passe à sa place.
 13. Un clic qui ouvre un nouvel onglet t'y fait passer : la page décrite est alors celle du nouvel onglet, et la liste des onglets ouverts est indiquée. Pour revenir au premier, utilise switch_tab.
 14. Un bandeau de cookies est accepté par le programme avant ton tour (étape « cookies » de l'historique) : une étape qui demande de l'accepter est alors faite. S'il couvre encore la page, accepte-le toi-même.
+15. Une ligne « Session : ... » dans le cas de test veut dire que le test commence déjà connecté : ne refais pas la connexion. Une ligne « Enregistrer la session : ... » concerne le programme : tu n'as rien à faire pour elle.
 """
 
 # Ajouté aux consignes quand la vision est activée : le modèle reçoit aussi la capture d'écran.
@@ -121,15 +122,17 @@ def build_user_message(case: TestCase, steps: list[Step], observation: Observati
 
     Les données personnelles de la page (e-mail, téléphone, carte, IBAN, noms et adresses) sont
     masquées, sauf celles que le cas de test donne lui-même : voir masquage.py. Les mots de passe du
-    cas de test sont remplacés par un repère, « [mot de passe] » : voir coffre.py.
+    cas de test sont remplacés par un repère, « [mot de passe] », partout : dans le cas, l'historique
+    et la page (un site d'entraînement affiche parfois le mot de passe de son compte de test).
     """
     history = "\n".join(describe_step(s) for s in steps) or "(aucune)"
+    hide = Coffre.from_case(case.text).hide  # un mot de passe affiché par la page (site de démonstration) aussi
     return (
         "## Cas de test\n"
-        f"{Coffre.from_case(case.text).hide(case.text)}\n\n"
+        f"{hide(case.text)}\n\n"
         "## Actions déjà réalisées\n"
-        f"{mask(history, case.text)}\n\n"
+        f"{mask(hide(history), case.text)}\n\n"
         "## État actuel de la page\n"
-        f"{mask(observation.to_prompt(), case.text)}\n\n"
+        f"{mask(hide(observation.to_prompt()), case.text)}\n\n"
         "Quelle est la prochaine action ? Réponds uniquement en JSON."
     )

@@ -13,6 +13,9 @@ changé (auto-réparation).
 Un bandeau de cookies qui couvre la page est accepté par le programme, sans le
 modèle, avant qu'il ne regarde la page (voir cookies.py).
 
+« {unique} » dans le cas de test devient une valeur propre à l'exécution, que
+le modèle lit comme une donnée de test ordinaire (voir donnees.py).
+
 Une interface (Alfred) peut suivre l'exécution en direct grâce à on_event,
 et demander l'arrêt grâce à stop_event.
 """
@@ -23,7 +26,7 @@ import shutil
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -33,7 +36,8 @@ from playwright.sync_api import Page
 from . import cookies
 from .actions import Action, parse_action
 from .coffre import Coffre
-from .browser import DATA_DIR, ActionResult, Observation, execute, observe, open_closed_shadows
+from .browser import DATA_DIR, ActionResult, Observation, execute, observe, open_closed_shadows, vision_screenshot
+from .donnees import contient, remplacer, remplacer_action, valeur_unique
 from .memoire import Memory, replay_action
 from .prompts import SYSTEM_PROMPT, VISION_PROMPT, build_user_message
 from .providers import Provider, ProviderError, RateLimitError
@@ -82,6 +86,15 @@ class RunResult:
     closed_shadow: bool = False  # la page avait des composants web fermés, ouverts pour le test
     coffre: Coffre | None = None  # mots de passe du cas : les étapes ne gardent que leur repère
     secrets: dict | None = None  # repère -> variable du fichier .env, pour les tests générés
+    unique: str | None = None  # valeur de {unique} pour cette exécution (voir donnees.py)
+    interruption: str | None = None  # quota_jour, quota, modele, arret ou session : l'exécution n'a pas pu conclure
+    navigateur: str = "chromium"  # chromium, firefox ou webkit
+    appareil: str | None = None  # téléphone ou tablette émulé, par exemple « iPhone 15 »
+    session_saved: Path | None = None  # fichier de la session enregistrée (ligne « Enregistrer la session »)
+    ads_blocked: int = 0  # requêtes de régies publicitaires bloquées (une publicité plein écran couvrirait la page)
+    api_calls: list | None = None  # appels d'API faits par la page (fetch, XMLHttpRequest), voir postman.py
+    postman_path: Path | None = None  # collection Postman de ces appels
+    postman_env_path: Path | None = None  # son environnement ({{baseUrl}}, variables secrètes vides)
 
     @property
     def checks(self) -> list[Step]:
@@ -101,6 +114,16 @@ def final_status(declared: str, summary: str, steps: list[Step]) -> tuple[str, s
     if declared == "PASS" and visual and all(visual):  # aucune mesure : seulement l'avis du modèle sur des captures
         return "PASS", f"PASS fondé uniquement sur l'avis visuel de l'IA, à confirmer. {summary}".strip()
     return declared, summary
+
+
+def interruption_of(exc: ProviderError) -> str:
+    """Pourquoi le modèle n'a pas répondu : quota_jour (il revient demain), quota (dans quelques minutes) ou modele.
+
+    no_free_quota (aucun quota gratuit pour ce modèle) compte comme quota_jour : attendre ne suffira pas.
+    """
+    if isinstance(exc, RateLimitError):
+        return "quota_jour" if exc.daily or exc.no_free_quota else "quota"
+    return "modele"
 
 
 STOPPED_SUMMARY = "Mission arrêtée à la demande de l'utilisateur."
@@ -142,6 +165,9 @@ class Agent:
         self.page: Page | None = None  # onglet où agit l'agent : il change quand un clic ouvre un nouvel onglet
         self._closed_shadows = 0
         self.coffre = Coffre()  # mots de passe du cas de test en cours
+        self.unique: str | None = None  # valeur de {unique} pour l'exécution en cours
+        self.blocked: str | None = None  # raison connue avant de commencer (session absente) : BLOQUÉ dès l'ouverture
+        self.interruption: str | None = None
 
     def _emit(self, kind: str, **data) -> None:
         if self.on_event is not None:
@@ -192,6 +218,8 @@ class Agent:
 
     def _do(self, page: Page, action: Action, observation: Observation | None, out_dir: Path, number: int, raw: str = "",
             source: str = "") -> Step:
+        # {unique} recopié tel quel (par le modèle, ou par la mémoire) : la valeur de cette exécution
+        action = remplacer_action(action, self.unique)
         # L'étape garde le repère « [mot de passe] » ; seule l'action exécutée porte le vrai mot de passe
         action = self.coffre.hide_action(action)
         self._emit("phase", phase="act", number=number, action=action, observation=observation)
@@ -254,15 +282,19 @@ class Agent:
         return "PASS", MEMORY_SUMMARY, None
 
     def run(self, page: Page, case: TestCase, out_dir: Path) -> RunResult:
-        self.model_calls, self.page, self._closed_shadows = 0, page, 0
-        self.coffre = Coffre.from_case(case.text)
+        self.model_calls, self.page, self._closed_shadows, self.interruption = 0, page, 0, None
+        # {unique} : une valeur propre à cette exécution. Le modèle lit le cas avec cette valeur (model_case) ;
+        # la mémoire et les tests générés, eux, gardent {unique} (case reste le cas tel qu'il est écrit).
+        self.unique = valeur_unique() if contient(case.text) or contient(case.url) else None
+        model_case = replace(case, url=remplacer(case.url, self.unique), text=remplacer(case.text, self.unique))
+        self.coffre = Coffre.from_case(model_case.text)
         open_closed_shadows(page.context)  # avant toute page : les composants fermés seront créés ouverts
         out_dir = Path(out_dir)
         (out_dir / "captures").mkdir(parents=True, exist_ok=True)
         started_at, start = datetime.now(), time.monotonic()
 
         # Première étape : ouvrir l'URL du cas de test, sans solliciter le modèle.
-        opening = Action("goto", {"url": case.url}, "Ouverture de l'URL indiquée dans le cas de test")
+        opening = Action("goto", {"url": model_case.url}, "Ouverture de l'URL indiquée dans le cas de test")
         steps: list[Step] = []
         self._add(steps, self._do(page, opening, None, out_dir, number=1))
         # Le bandeau de cookies s'affiche souvent juste après la page : on l'attend s'il y a un outil de consentement
@@ -270,7 +302,9 @@ class Agent:
         self._cookies(self.page, steps, out_dir, cookies.WAIT_S)
 
         status, summary, errors, healed_at = None, "", 0, None
-        plan = self.memory.load(case) if self.memory is not None else None
+        if self.blocked:  # la session que le cas reprend n'a pas encore été enregistrée
+            status, summary, self.interruption = "BLOQUE", self.blocked, "session"
+        plan = self.memory.load(case) if self.memory is not None and status is None else None
         if plan is not None:
             status, summary, healed_at = self._replay(self.page, plan, steps, out_dir)
         replayed = sum(1 for s in steps if s.source == "memoire")
@@ -278,7 +312,7 @@ class Agent:
         while status is None:
             free = replayed + sum(1 for s in steps if s.source == "programme")  # étapes faites sans le modèle
             if self._stop_requested():
-                status, summary = "BLOQUE", STOPPED_SUMMARY
+                status, summary, self.interruption = "BLOQUE", STOPPED_SUMMARY, "arret"
                 break
             if len(steps) - free >= self.max_steps:  # les étapes faites sans le modèle ne comptent pas
                 status, summary = "BLOQUE", f"Nombre maximal d'actions atteint ({self.max_steps})."
@@ -286,20 +320,22 @@ class Agent:
             self._cookies(self.page, steps, out_dir)
             self._emit("phase", phase="observe", number=len(steps) + 1)
             observation = self._observe(self.page)
-            if self.vision:  # le modèle voit la page comme un testeur : capture JPEG, légère
+            if self.vision:  # le modèle voit la page comme un testeur : capture JPEG légère, données personnelles cachées
                 try:
-                    observation.screenshot = self.page.screenshot(type="jpeg", quality=55)
+                    observation.screenshot = vision_screenshot(self.page, observation, model_case.text,
+                                                               list(self.coffre.secrets.values()))
                 except PlaywrightError:
                     observation.screenshot = None
-            user_message = build_user_message(case, steps, observation)
+            user_message = build_user_message(model_case, steps, observation)
             self._emit("phase", phase="think", number=len(steps) + 1)
             try:
                 raw = self._ask_model(user_message, observation)
             except ProviderError as exc:
                 if self._stop_requested():
-                    status, summary = "BLOQUE", STOPPED_SUMMARY
+                    status, summary, self.interruption = "BLOQUE", STOPPED_SUMMARY, "arret"
                 else:
                     status, summary = "BLOQUE", f"Le modèle n'a pas pu répondre : {exc}"
+                    self.interruption = interruption_of(exc)
                 break
 
             try:
@@ -320,6 +356,8 @@ class Agent:
                 self._pause()
 
         status, summary = final_status(status, summary, steps)
+        if status == "BLOQUE" and summary == STOPPED_SUMMARY:  # arrêt demandé, pendant le rejeu de la mémoire compris
+            self.interruption = "arret"
         final_page = None
         if status != "PASS":  # la page telle qu'elle est restée, pour comprendre l'échec
             try:
@@ -330,7 +368,7 @@ class Agent:
         visual = any(s.action is not None and s.action.name == "check_visual" for s in steps)
         if self.memory is not None and status == "PASS" and not visual:  # parcours réussis et vérifiables sans IA
             try:
-                self.memory.save(case, steps, f"{self.provider.name} ({self.provider.model})", summary)
+                self.memory.save(case, steps, f"{self.provider.name} ({self.provider.model})", summary, unique=self.unique)
                 saved = True
             except OSError:  # disque plein, dossier protégé : le test a réussi, seule la mémoire manque
                 saved = False
@@ -352,4 +390,6 @@ class Agent:
             vision=self.vision,
             closed_shadow=self._closed_shadows > 0,
             coffre=self.coffre,
+            unique=self.unique,
+            interruption=self.interruption,
         )

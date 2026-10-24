@@ -5,3 +5,5 @@ pytest-playwright>=0.5
 # Pour rejouer les tests Robot Framework générés (Selenium télécharge seul le pilote de Chrome)
 robotframework>=7.0
 robotframework-seleniumlibrary>=6.0
+# Pour préparer l'import des cas de test dans Squash TM (fichier Excel)
+openpyxl>=3.1

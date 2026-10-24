@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass, field
 
 from .actions import _extract_json
-from .testcase import TestCase, slugify
+from .testcase import TestCase, session_names, slugify
 
 PRIORITIES = ("haute", "moyenne", "basse")
 _PRIORITY_ALIASES = {"high": "haute", "medium": "moyenne", "moyen": "moyenne", "low": "basse", "élevée": "haute",
@@ -164,6 +164,7 @@ _SCENARIO = re.compile(r"^\s*(?:Scénario|Scenario|Exemple|Example)\s*:\s*(.+)$"
 _OUTLINE = re.compile(r"^\s*(?:Plan du scénario|Plan du Scénario|Scenario Outline)\s*:", re.IGNORECASE)
 _BACKGROUND = re.compile(r"^\s*(?:Contexte|Background)\s*:", re.IGNORECASE)
 _URL_COMMENT = re.compile(r"^\s*#\s*URL\s*:\s*(\S+)", re.IGNORECASE)
+_SESSION_COMMENT = re.compile(r"^\s*#\s*((?:Enregistrer\s+la\s+)?session\s*:\s*\S+)\s*$", re.IGNORECASE)
 _CODE_TAG = re.compile(r"@([A-Za-z]{2,}-\d+)\b")
 _HTTP = re.compile(r"https?://[^\s\"'»]+")
 
@@ -173,16 +174,21 @@ def feature_cases(text: str) -> list[TestCase]:
 
     L'adresse vient d'un commentaire « # URL : ... », sinon de la première adresse
     citée dans les étapes. Les plans de scénario (avec Exemples) ne sont pas repris.
+    Les commentaires « # Session : nom » et « # Enregistrer la session : nom » valent
+    pour chaque scénario (voir testcase.py).
     """
     feature, code, url = "", "", None
     narrative: list[str] = []
     background: list[str] = []
     scenarios: list[tuple[str, list[str]]] = []
+    sessions: list[str] = []  # lignes « Session : ... » reprises dans chaque cas
     section = "entete"
     for raw in text.splitlines():
         line = raw.strip()
         if url is None and (match := _URL_COMMENT.match(line)):
             url = match.group(1)
+        if match := _SESSION_COMMENT.match(line):
+            sessions.append(match.group(1).strip())
         if not line or line.startswith("#"):
             continue
         if line.startswith("@"):
@@ -208,16 +214,17 @@ def feature_cases(text: str) -> list[TestCase]:
     if not feature or url is None:
         return []
     name = feature if not code or feature.upper().startswith(code.upper()) else f"{code.upper()} {feature}"
+    session, save_session = session_names("\n".join(sessions))
     cases = []
     for scenario, steps in scenarios:
         if not steps:
             continue
         title = f"{name} : {scenario}"
-        body = [f"# {title}", f"URL : {url}", ""]
+        body = [f"# {title}", f"URL : {url}", *sessions, ""]
         if narrative:
             body += ["## User story", *narrative, ""]
         body += ["## Scénario Gherkin", *background, *steps]
-        cases.append(TestCase(title=title, url=url, text="\n".join(body)))
+        cases.append(TestCase(title=title, url=url, text="\n".join(body), session=session, save_session=save_session))
     return cases
 
 
