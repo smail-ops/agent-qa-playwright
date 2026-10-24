@@ -70,7 +70,7 @@ def test_script_pytest(run92, pw_browser):
     # Bandeau de cookies (Google) : accepté s'il s'affiche, comme pendant l'exécution de l'agent
     bandeau_cookies = page.locator('button.fc-cta-consent').first
     page.add_locator_handler(bandeau_cookies, lambda: bandeau_cookies.click())
-    page.locator('#email').fill('lecteur@exemple.fr')
+    page.get_by_role('textbox', name='Adresse e-mail', exact=True).fill('lecteur@exemple.fr')
 """.format(url=run92.case.url) in code
     namespace = {}
     exec(compile(code, "test_genere.py", "exec"), namespace)

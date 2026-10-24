@@ -5,8 +5,10 @@
 | Statut | **✅ PASS** |
 | Modèle | scripted (scénario simulé) |
 | Appels au modèle | aucun (démo sans IA) |
-| Date | 17/10/2026 17:48 |
-| Durée | 1 s |
+| Vision | non |
+| Navigateur | Chromium 141.0.7390.37 |
+| Date | 24/10/2026 08:13 |
+| Durée | 3 s |
 | Actions | 15 |
 
 **Conclusion :** Tri, panier et formulaire de commande conformes
@@ -17,12 +19,12 @@
 |---|---|---|---|---|---|
 | 1 | goto | « http://localhost:8000/index.html » | OK | Ouverture de l'URL indiquée dans le cas de test | [voir](captures/etape-01.png) |
 | 2 | fill | `#user-name` ← « standard_user » | OK | Étape 1 : saisie de l'identifiant | [voir](captures/etape-02.png) |
-| 3 | fill | `#password` ← « secret_sauce » | OK | Étape 1 : saisie du mot de passe | [voir](captures/etape-03.png) |
+| 3 | fill | `#password` ← « [mot de passe] » | OK | Étape 1 : saisie du mot de passe | [voir](captures/etape-03.png) |
 | 4 | click | `[data-test="login-button"]` | OK | Étape 2 : clic sur Connexion | [voir](captures/etape-04.png) |
 | 5 | check_count | « Ajouter au panier » (3 fois) | ✅ vérifié | Résultat attendu : trois boutons « Ajouter au panier » | [voir](captures/etape-05.png) |
 | 6 | select | `[data-test="sort"]` ← « Prix croissant » | OK | Étape 3 : tri par prix croissant | [voir](captures/etape-06.png) |
 | 7 | check_order | « Lampe de vélo » puis « T-shirt » puis « Sac à dos » | ✅ vérifié | Résultat attendu : produits triés du moins cher au plus cher | [voir](captures/etape-07.png) |
-| 8 | click | `button:has-text("Ajouter au panier") (n°1)` | OK | Étape 4 : ajout du premier produit | [voir](captures/etape-08.png) |
+| 8 | click | `button:has-text("Ajouter au panier")` (n°1) | OK | Étape 4 : ajout du premier produit | [voir](captures/etape-08.png) |
 | 9 | check_count | « Retirer » (1 fois) | ✅ vérifié | Résultat attendu : un seul bouton « Retirer » | [voir](captures/etape-09.png) |
 | 10 | click | `[data-test="checkout"]` | OK | Étape 5 : clic sur Commander | [voir](captures/etape-10.png) |
 | 11 | check_state | `[data-test="continuer"]` : grisé | ✅ vérifié | Résultat attendu : « Continuer » grisé avant l'acceptation des conditions | [voir](captures/etape-11.png) |
@@ -63,7 +65,7 @@ robot ct_90_demo_locale_tri_panier_et_commande_bdd.robot
 URL : http://localhost:8000/index.html
 
 ## Étapes
-1. Saisir « standard_user » dans le champ Identifiant, puis « secret_sauce » dans le champ Mot de passe
+1. Saisir « standard_user » dans le champ Identifiant, puis « [mot de passe] » dans le champ Mot de passe
 2. Cliquer sur Connexion
 3. Trier les produits par « Prix croissant »
 4. Ajouter le premier produit au panier

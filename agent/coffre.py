@@ -30,23 +30,59 @@ _QUOTED = re.compile(r"«\s*([^«»]+?)\s*»|\"([^\"]+)\"|“([^”]+)”")
 _ARGS = ("text", "value")  # arguments d'une action qui peuvent contenir un mot de passe (fill, check_value)
 
 
+_FIELD_WORDS = 5  # un nom de champ entre guillemets tient en quelques mots, sans point final (sinon, c'est un message)
+
+
+def _isolated(line: str, match: re.Match) -> bool:
+    """Le mot est entier : « champ Password » ou « new_password » oui, « SuperSecretPassword! » non."""
+    before = line[match.start() - 1] if match.start() else " "
+    rest = line[match.end():]
+    rest = rest[1:] if rest[:1] == "s" else rest  # pluriel : « passwords »
+    return not before.isalpha() and not rest[:1].isalpha()
+
+
+def _field_name(value: str) -> bool:
+    """Un nom de champ entre guillemets (« Mot de passe », "Password", « new_password »), pas une phrase affichée."""
+    return len(value.split()) <= _FIELD_WORDS and not value.rstrip().endswith((".", "!", "?"))
+
+
 def _values(case_text: str) -> list[str]:
     """Les mots de passe du cas : sur une ligne qui parle de mot de passe, la valeur entre guillemets la plus proche.
 
-    Une valeur qui contient elle-même le mot (« Mot de passe incorrect », le champ « Password ») n'en est pas un.
+    Le mot « mot de passe » (ou « password ») qui compte est celui du nom du champ, hors des guillemets :
+    « Saisir « SuperSecretPassword! » dans le champ Password » donne SuperSecretPassword!. Une phrase entre
+    guillemets qui contient le mot (« Mot de passe incorrect ») n'est pas un mot de passe, ni le mot seul
+    (« Password »). Quand le mot n'apparaît qu'entre guillemets (le champ "Password" d'un scénario Gherkin,
+    « new_password »), ce qui le contient est le nom du champ : la valeur est à côté. Une ligne où le mot
+    n'est que dans un message (« Your password is invalid! ») ne donne rien.
     """
     found: list[str] = []
     for line in case_text.splitlines():
-        keyword = _KEYWORD.search(line)
-        if keyword is None:
+        if _KEYWORD.search(line) is None:
             continue
-        quoted = [(match.start(), next(group for group in match.groups() if group).strip())
+        quoted = [(match.start(), match.end(), next(group for group in match.groups() if group).strip())
                   for match in _QUOTED.finditer(line)]
-        quoted = [(position, value) for position, value in quoted
-                  if value and not _KEYWORD.search(value) and not value.startswith("[")]
-        if not quoted:
+        outside = [m for m in _KEYWORD.finditer(line)
+                   if not any(start <= m.start() < end for start, end, _ in quoted) and _isolated(line, m)]
+        names = [start for start, _, value in quoted if _KEYWORD.search(value) and _field_name(value)]
+        if outside:
+            anchor = outside[0].start()
+        elif names:
+            anchor = names[0]
+        else:
+            continue  # le mot n'est que dans un message affiché, ou dans un mot plus long : pas de mot de passe ici
+
+        def usable(value: str) -> bool:
+            if not value or value.startswith("[") or _KEYWORD.fullmatch(value):
+                return False
+            if _KEYWORD.search(value):  # « Mot de passe incorrect » ; le nom du champ quand le mot n'est qu'entre guillemets
+                return bool(outside) and not re.search(r"\s", value)
+            return True
+
+        candidates = [(start, value) for start, _, value in quoted if usable(value)]
+        if not candidates:
             continue
-        value = min(quoted, key=lambda item: abs(item[0] - keyword.start()))[1]
+        value = min(candidates, key=lambda item: abs(item[0] - anchor))[1]
         if value not in found:
             found.append(value)
     return found

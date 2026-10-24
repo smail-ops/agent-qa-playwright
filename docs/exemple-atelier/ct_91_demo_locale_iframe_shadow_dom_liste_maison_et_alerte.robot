@@ -22,17 +22,17 @@ CT-91 Démo locale : iframe, Shadow DOM, liste maison et alerte
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Le texte de l'élément est    css:#note    Livrer avant midi
     Unselect Frame
     Wait Until Page Contains Element    dom:document.querySelector('generateur-code').shadowRoot.querySelector('#generer')
-    Click Element    dom:document.querySelector('generateur-code').shadowRoot.querySelector('#generer')
+    Cliquer    dom:document.querySelector('generateur-code').shadowRoot.querySelector('#generer')
     Wait Until Keyword Succeeds    ${DELAI}    200ms    La valeur correspond au motif    dom:document.querySelector('generateur-code').shadowRoot.querySelector('#code')    ^PROMO-[0-9A-F]{4}-[0-9A-F]{4}$
     La page affiche    Code prêt à copier
-    Click Element    xpath://label[normalize-space(.)="Rôle"]/following::div[@tabindex][1]
-    Click Element    xpath://div[@role="option"][contains(normalize-space(.), "ESS")]
+    Cliquer    xpath://label[normalize-space(.)="Rôle"]/following::div[@tabindex][1]
+    Cliquer    xpath://div[@role="option"][contains(normalize-space(.), "ESS")]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Le texte de l'élément est    xpath://label[normalize-space(.)="Rôle"]/following::div[@tabindex][1]    ESS
     La page affiche    Rôle : ESS
-    Click Element    css:[data-test="envoyer"]
+    Cliquer    css:[data-test="envoyer"]
     Accepter la fenêtre    Confirmer l'envoi de la commande ?
     La page affiche    Commande envoyée
-    Click Element    css:[data-test="charger"]
+    Cliquer    css:[data-test="charger"]
     Wait Until Keyword Succeeds    10s    500ms    Le texte visible contient    Stock chargé
     La page affiche    Stock chargé : 12 articles
 
@@ -40,8 +40,8 @@ CT-91 Démo locale : iframe, Shadow DOM, liste maison et alerte
 Ouvrir le navigateur
     [Documentation]    Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.
     ...    Avec Chrome, le gestionnaire de mots de passe est coupé (variable OPTIONS_CHROME) : après une connexion
-    ...    avec un mot de passe connu des fuites de données, comme secret_sauce, Chrome afficherait une alerte
-    ...    « mot de passe compromis » qui interrompt le test.
+    ...    avec un mot de passe connu des fuites de données, comme celui du site d'entraînement SauceDemo, Chrome
+    ...    afficherait une alerte « mot de passe compromis » qui interrompt le test.
     [Arguments]    ${url}
     ${chrome}=    Evaluate    $BROWSER.lower().replace(" ", "") in ('chrome', 'googlechrome', 'gc', 'headlesschrome')
     IF    ${chrome}
@@ -57,6 +57,13 @@ Le texte de l'élément est
     ${texte}=    Get Text    ${localisateur}
     Should Be Equal    ${texte}    ${attendu}    msg=L'élément affiche « ${texte} » au lieu de « ${attendu} ».    values=False
     ...    strip_spaces=True    collapse_spaces=True
+
+Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 
 La valeur correspond au motif
     [Documentation]    La valeur du champ suit le motif (expression régulière) : un code généré, une date...

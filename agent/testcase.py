@@ -11,16 +11,29 @@ Format attendu :
     ## Résultats attendus
     - ...
 
-Seuls le titre et l'URL sont lus par le programme. Le reste du texte est
-transmis tel quel au modèle d'IA, qui l'interprète comme le ferait un testeur.
+Seuls le titre, l'URL et deux lignes facultatives sont lus par le programme.
+Le reste du texte est transmis tel quel au modèle d'IA, qui l'interprète comme
+le ferait un testeur.
+
+Les deux lignes facultatives servent à ne se connecter qu'une fois :
+
+    Enregistrer la session : saucedemo    (le cas de connexion, une fois réussi, garde la session)
+    Session : saucedemo                   (ce cas commence déjà connecté, avec cette session)
+
+La session (cookies et stockage local du site) est rangée dans le dossier
+sessions/, exclu de Git : elle donne accès au compte de test.
 """
 
 from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+
+_SESSION = re.compile(r"^\s*Session\s*:\s*(\S+)\s*$", re.MULTILINE | re.IGNORECASE)
+_SAVE_SESSION = re.compile(r"^\s*Enregistrer\s+la\s+session\s*:\s*(\S+)\s*$", re.MULTILINE | re.IGNORECASE)
+SESSION_NAME = re.compile(r"[A-Za-z0-9][\w-]{0,39}")
 
 
 @dataclass
@@ -32,6 +45,8 @@ class TestCase:
     title: str
     url: str
     text: str
+    session: str | None = None  # le cas commence avec cette session (déjà connecté)
+    save_session: str | None = None  # le cas, une fois réussi, enregistre la session sous ce nom
 
     @property
     def slug(self) -> str:
@@ -49,7 +64,19 @@ class TestCase:
             raise ValueError("L'adresse à tester doit commencer par http:// ou https://, par exemple https://www.saucedemo.com/")
         text = re.sub(r"^(\s*URL\s*:\s*)\S+", lambda m: m.group(1) + url, self.text, count=1,
                       flags=re.MULTILINE | re.IGNORECASE)
-        return TestCase(title=self.title, url=url, text=text)
+        return replace(self, url=url, text=text)
+
+
+def session_names(text: str) -> tuple[str | None, str | None]:
+    """Les lignes « Session : nom » et « Enregistrer la session : nom » du cas : (session reprise, session enregistrée)."""
+    names = []
+    for pattern in (_SESSION, _SAVE_SESSION):
+        match = pattern.search(text)
+        if match and not SESSION_NAME.fullmatch(match.group(1)):
+            raise ValueError(f"Nom de session invalide : « {match.group(1)} ». Utilise des lettres, des chiffres, - ou _ "
+                             "(40 caractères au plus), par exemple : Session : saucedemo")
+        names.append(match.group(1) if match else None)
+    return names[0], names[1]
 
 
 def slugify(text: str, max_length: int = 60) -> str:
@@ -67,7 +94,9 @@ def parse_test_case(text: str) -> TestCase:
         raise ValueError("Titre introuvable : la première ligne doit commencer par « # ».")
     if not url_match:
         raise ValueError("URL introuvable : ajoute une ligne « URL : https://... ».")
-    return TestCase(title=title_match.group(1).strip(), url=url_match.group(1), text=text.strip())
+    session, save_session = session_names(text)
+    return TestCase(title=title_match.group(1).strip(), url=url_match.group(1), text=text.strip(), session=session,
+                    save_session=save_session)
 
 
 def load_test_case(path: str | Path) -> TestCase:

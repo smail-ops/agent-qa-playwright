@@ -5,7 +5,9 @@
 | Statut | **✅ PASS** |
 | Modèle | scripted (scénario simulé) |
 | Appels au modèle | aucun (démo sans IA) |
-| Date | 17/10/2026 17:48 |
+| Vision | non |
+| Navigateur | Chromium 141.0.7390.37 |
+| Date | 24/10/2026 08:13 |
 | Durée | 1 s |
 | Actions | 8 |
 
@@ -17,11 +19,11 @@
 |---|---|---|---|---|---|
 | 1 | goto | « http://localhost:8000/index.html » | OK | Ouverture de l'URL indiquée dans le cas de test | [voir](captures/etape-01.png) |
 | 2 | fill | `#user-name` ← « standard_user » | OK | Étape 1 : saisie de l'identifiant | [voir](captures/etape-02.png) |
-| 3 | fill | `#password` ← « secret_sauce » | OK | Étape 2 : saisie du mot de passe | [voir](captures/etape-03.png) |
+| 3 | fill | `#password` ← « [mot de passe] » | OK | Étape 2 : saisie du mot de passe | [voir](captures/etape-03.png) |
 | 4 | click | `[data-test="login-button"]` | OK | Étape 3 : clic sur Connexion | [voir](captures/etape-04.png) |
 | 5 | check_url | « inventory » | ✅ vérifié | Résultat attendu : page des produits | [voir](captures/etape-05.png) |
 | 6 | check_text | « Produits » | ✅ vérifié | Résultat attendu : titre Produits visible | [voir](captures/etape-06.png) |
-| 7 | click | `button:has-text("Ajouter au panier") (n°1)` | OK | Étape 4 : ajout du premier produit | [voir](captures/etape-07.png) |
+| 7 | click | `button:has-text("Ajouter au panier")` (n°1) | OK | Étape 4 : ajout du premier produit | [voir](captures/etape-07.png) |
 | 8 | check_text | « Panier (1) » | ✅ vérifié | Résultat attendu : compteur du panier à 1 | [voir](captures/etape-08.png) |
 
 ## Vérifications
@@ -53,7 +55,7 @@ URL : http://localhost:8000/index.html
 
 ## Étapes
 1. Saisir « standard_user » dans le champ Identifiant
-2. Saisir « secret_sauce » dans le champ Mot de passe
+2. Saisir « [mot de passe] » dans le champ Mot de passe
 3. Cliquer sur Connexion
 4. Ajouter le premier produit au panier
 

@@ -58,6 +58,15 @@ def connexion(pw_page, demo_url, tmp_path):
     ("1. Saisir « Azerty1 » dans Mot de passe\n2. Saisir « Qwerty2 » dans Confirmation du mot de passe",
      {"[mot de passe 1]": "Azerty1", "[mot de passe 2]": "Qwerty2"}),
     ("1. Saisir « bonjour » dans le champ Recherche", {}),
+    # Le mot « Password » dans la valeur elle-même : c'est bien le mot de passe (site The Internet)
+    ("1. Saisir « SuperSecretPassword! » dans le champ Password", {"[mot de passe]": "SuperSecretPassword!"}),
+    ("1. Saisir « Azerty1 » dans le champ « new_password »", {"[mot de passe]": "Azerty1"}),
+    ("1. Saisir « Azerty1 » dans le champ new_password", {"[mot de passe]": "Azerty1"}),
+    ('Et je saisis "MonMotDePasse2026" dans le champ "Mot de passe"', {"[mot de passe]": "MonMotDePasse2026"}),
+    ("2. Taper « P@ss mot!2026 » dans le champ Mot de passe", {"[mot de passe]": "P@ss mot!2026"}),
+    # Le mot n'est que dans un message affiché, ou dans un mot plus long : aucun mot de passe sur la ligne
+    ("- Le message « Your email or password is incorrect! » s'affiche sous le champ « Email Address »", {}),
+    ("- Avec tomsmith / SuperSecretPassword!, la page affiche « You logged into a secure area! »", {}),
 ])
 def test_mots_de_passe_du_cas(texte, attendu):
     assert Coffre.from_case(texte).secrets == attendu
@@ -127,7 +136,7 @@ def test_tests_generes_sans_mot_de_passe(connexion, pw_browser, tmp_path, monkey
 
     code = generate_script(connexion)
     assert "secret_sauce" not in code
-    assert f"page.locator('#password').fill(secret({name!r}))" in code
+    assert f"page.get_by_placeholder('Mot de passe', exact=True).fill(secret({name!r}))" in code
     assert "load_dotenv(find_dotenv(usecwd=True))" in code
     namespace = {}
     exec(compile(code, "test_genere.py", "exec"), namespace)

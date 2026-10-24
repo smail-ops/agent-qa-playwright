@@ -161,10 +161,12 @@ main {
 .options { margin-top: 16px; display: grid; gap: 10px; font-size: 14px; }
 .options label { display: flex; align-items: center; gap: 10px; }
 .options input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--holo); margin: 0; }
-.options input[type="number"] {
+.options input[type="number"], .options select {
   width: 64px; background: var(--abysse-2); border: 1px solid var(--trait-fort); border-radius: 3px;
   padding: 4px 6px; font-variant-numeric: tabular-nums;
 }
+.options select { width: auto; min-width: 9em; }
+.options-ligne { display: flex; flex-wrap: wrap; gap: 10px 18px; }
 
 /* Le poste d'Alfred : le cadran, sa parole, la vue du navigateur */
 .poste { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 28px 32px 32px; gap: 22px; }
@@ -441,6 +443,24 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
       <label>Pause entre deux actions <input type="number" id="option-pause" min="0" max="30" step="0.5" value="1.5"> s</label>
       <label><input type="checkbox" id="option-sans-memoire"> Ignorer la mémoire (tout refaire avec l'IA)</label>
       <label><input type="checkbox" id="option-vision"> Vision : le modèle voit aussi l'écran</label>
+      <div class="options-ligne">
+        <label>Navigateur
+          <select id="option-navigateur">
+            <option value="chromium">Chromium</option>
+            <option value="firefox">Firefox</option>
+            <option value="webkit">WebKit (Safari)</option>
+          </select>
+        </label>
+        <label>Appareil
+          <select id="option-appareil">
+            <option value="">Ordinateur</option>
+            <option value="iPhone 15">iPhone 15</option>
+            <option value="Pixel 7">Pixel 7</option>
+            <option value="Galaxy S24">Galaxy S24</option>
+            <option value="iPad Mini">iPad Mini</option>
+          </select>
+        </label>
+      </div>
     </div>
   </section>
 
@@ -977,7 +997,7 @@ URL : https://www.saucedemo.com/
     $("bouton-lancer").disabled = !peutLancer();
     $("bouton-lancer").hidden = enCours;
     $("bouton-arret").hidden = !enCours;
-    for (const b of document.querySelectorAll(".carte-cas, #bouton-ecrire, #bouton-proposer, input[name='moteur'], #option-fenetre, #option-pause, #option-sans-memoire, #option-vision, #url-mission, #url-retablir")) {
+    for (const b of document.querySelectorAll(".carte-cas, #bouton-ecrire, #bouton-proposer, input[name='moteur'], #option-fenetre, #option-pause, #option-sans-memoire, #option-vision, #option-navigateur, #option-appareil, #url-mission, #url-retablir")) {
       if (b.name === "moteur" && b.value === "scripted" && !(etat.selection && etat.selection.demo)) continue;
       b.disabled = enCours;
     }
@@ -991,14 +1011,20 @@ URL : https://www.saucedemo.com/
   }
 
   // --- Missions -----------------------------------------------------------------------
+  // Réglages communs à une mission et à la relance des tests en échec
+  function reglagesMission() {
+    return { provider: etat.moteur, headed: $("option-fenetre").checked, pause: parseFloat($("option-pause").value) || 0,
+             memoire: !$("option-sans-memoire").checked, vision: $("option-vision").checked,
+             navigateur: $("option-navigateur").value, appareil: $("option-appareil").value };
+  }
+
   async function lancer() {
     if (!peutLancer()) {
       if (etat.mission && !etat.mission.fini) annoncer("Une mission est déjà en cours.");
       else annoncer(raisonBlocage(), { important: true });
       return;
     }
-    const corps = { provider: etat.moteur, headed: $("option-fenetre").checked, pause: parseFloat($("option-pause").value) || 0,
-                    memoire: !$("option-sans-memoire").checked, vision: $("option-vision").checked };
+    const corps = reglagesMission();
     if (etat.selection.custom) corps.markdown = $("editeur-texte").value;
     else {
       corps.case = etat.selection.id;
@@ -1015,10 +1041,33 @@ URL : https://www.saucedemo.com/
   }
 
   async function arreter() {
+    clearTimeout(etat.suivante);  // une relance en série s'arrête aussi
     if (!etat.mission || etat.mission.fini) return annoncer("Aucune mission en cours.");
     annoncer("J'arrête la mission.", { important: true, interrompre: true });
     try { await api(`/api/missions/${etat.mission.id}/stop`, { method: "POST", corps: {} }); }
     catch (erreur) { annoncer(erreur.message, { important: true }); }
+  }
+
+  // Un appareil absent de la liste (« iPhone 13 », demandé à la voix) y est ajouté
+  function choisirAppareil(nom) {
+    const liste = $("option-appareil");
+    if (nom && !Array.from(liste.options).some((option) => option.value === nom)) liste.append(new Option(nom, nom));
+    liste.value = nom || "";
+  }
+
+  // « Relance les tests en échec » : Alfred retrouve les cas dont la dernière exécution n'a pas réussi,
+  // et les relance l'un après l'autre (une mission par cas, suivie en direct comme les autres).
+  async function relancerEchecs() {
+    if (etat.mission && !etat.mission.fini) return annoncer("Une mission est déjà en cours.", { important: true });
+    if (etat.moteur !== "scripted" && !moteurPret(etat.moteur)) return annoncer($("aide-moteur").textContent, { important: true });
+    try {
+      const r = await api("/api/relance", { method: "POST", corps: reglagesMission() });
+      annoncer(r.say, { important: true, interrompre: true });
+      if (r.id) suivre(r.id);
+    } catch (erreur) {
+      changerEtat("erreur");
+      annoncer(erreur.message, { important: true });
+    }
   }
 
   function reinitialiserJournal() {
@@ -1049,8 +1098,8 @@ URL : https://www.saucedemo.com/
     recu("memory", surMemoire);
     recu("heal", surReparation);
     recu("analysis", surAnalyse);
-    recu("done", (d) => { surFin(d); source.close(); });
-    recu("fault", (d) => { surPanne(d); source.close(); });
+    recu("done", (d) => { surFin(d); source.close(); suivant(d); });
+    recu("fault", (d) => { surPanne(d); source.close(); suivant(d); });
     source.onerror = () => {
       if (source.readyState === EventSource.CLOSED) return;
       if (++echecs === 3) annoncer("Je ne reçois plus rien d'Alfred. Vérifiez que python -m alfred tourne toujours.", { important: true });
@@ -1068,7 +1117,16 @@ URL : https://www.saucedemo.com/
     etat.chrono = setInterval(majChrono, 500);
     majChrono();
     changerEtat("observe");
+    if (d.serie) ajouterNote(`Relance des tests en échec : test ${d.serie.position} sur ${d.serie.total}, ${d.title}.`);
+    if (d.navigateur && (d.navigateur !== "chromium" || d.appareil)) ajouterNote(`Navigateur : ${d.navigateur_libelle}.`);
     annoncer(d.say, { important: true, parler: recent(d) });
+  }
+
+  // Relance en série : le test suivant démarre quand Alfred a fini d'annoncer le verdict
+  function suivant(d) {
+    if (!d.serie || !d.serie.suivante) return;
+    clearTimeout(etat.suivante);
+    etat.suivante = setTimeout(() => suivre(d.serie.suivante), recent(d) ? 3000 : 0);
   }
 
   // Quota par minute atteint : l'agent patiente le temps indiqué par l'API, avec un compte à rebours.
@@ -1221,7 +1279,8 @@ URL : https://www.saucedemo.com/
       `Avis de l'IA : ${d.diagnosis.nature.toLowerCase()}, gravité ${d.diagnosis.gravite.toLowerCase()}. ${d.diagnosis.titre}`));
     const fichiers = element("div", "verdict-fichiers");
     for (const [nom, libelle] of [["anomalie", "Fiche d'anomalie"], ["rapport", "Lire le rapport"], ["pytest", "Test pytest"],
-                                  ["robot", "Test Robot"], ["gherkin", "Scénario Gherkin"], ["robot_bdd", "Gherkin pour Robot"]]) {
+                                  ["robot", "Test Robot"], ["gherkin", "Scénario Gherkin"], ["robot_bdd", "Gherkin pour Robot"],
+                                  ["postman", "Collection Postman"]]) {
       if (!d.files[nom]) continue;
       const bouton = element("button", "bouton-fichier", libelle);
       bouton.type = "button";
@@ -1239,7 +1298,9 @@ URL : https://www.saucedemo.com/
     verdict.replaceChildren();
     verdict.hidden = false;
     let conseil = "Le détail ci-dessus vient de Python. Si besoin, relancez la mission depuis la ligne de commande pour voir l'erreur complète.";
-    if (/Executable doesn't exist|playwright install/i.test(d.message)) conseil = "Le navigateur de Playwright manque : lancez playwright install chromium dans le terminal, puis relancez la mission.";
+    const installation = d.message.match(/python -m playwright install \w+/);
+    if (installation) conseil = `Le navigateur manque : lancez ${installation[0]} dans le terminal, puis relancez la mission.`;
+    else if (/Executable doesn't exist|playwright install/i.test(d.message)) conseil = "Le navigateur de Playwright manque : lancez playwright install chromium dans le terminal, puis relancez la mission.";
     verdict.append(element("p", "verdict-mot", "Erreur"), element("p", "verdict-resume", d.message), element("p", "verdict-chiffres", conseil));
     annoncer(d.say, { important: true, interrompre: true, parler: recent(d) });
   }
@@ -1248,7 +1309,7 @@ URL : https://www.saucedemo.com/
   const TITRES_FICHIERS = {
     rapport: "Rapport de la mission", pytest: "Test pytest généré", robot: "Test Robot Framework généré",
     gherkin: "Scénario Gherkin généré", robot_bdd: "Scénario Gherkin, exécutable avec Robot Framework",
-    anomalie: "Fiche d'anomalie",
+    anomalie: "Fiche d'anomalie", postman: "Collection Postman des appels d'API",
   };
 
   // url : un fichier d'une exécution passée, trouvé par Alfred (« ouvre la fiche d'anomalie de CT-14 »)
@@ -1280,6 +1341,10 @@ URL : https://www.saucedemo.com/
     const question = /\?\s*$/.test(texte.trim()) || /\b(pourquoi|comment|combien|quand|quel|quelle|quels|quelles|est ce que|qu est ce|lequel|laquelle)\b/.test(t);
     if (question) return { type: "inconnu" };
     if (/\b(arrete|arreter|stop|annule|annuler|interromps)\b/.test(t)) return { type: "arreter" };
+    // « Relance les tests en échec », « rejoue les tests qui ont échoué » : une série de missions
+    if (/\b(relance|relancer|relances|rejoue|rejouer|refais|refaire|reexecute|reexecuter|repasse|repasser)\b.*\b(echec|echecs|echoue|echoues|echouee|echouees|rate|rates|ratees|ko|fail|failed)\b/.test(t)) {
+      return { type: "relancer_echecs" };
+    }
     if (/^(vas y|go|c est parti|on y va|allez y|lance|lance le|lance la mission|lance le test|demarre)$/.test(t)) return { type: "lancer_courant" };
     if (/\b(ouvre|ouvrir|montre|affiche|lis)\b/.test(t)) {  // « ouvre le rapport du test 3 » : un fichier, pas un lancement
       const fichier = fichierDemande(t);
@@ -1302,6 +1367,7 @@ URL : https://www.saucedemo.com/
   }
 
   function fichierDemande(t) {
+    if (/\b(postman|newman|collection)\b/.test(t)) return "postman";
     if (/\b(anomalie|bug|fiche)\b/.test(t)) return "anomalie";
     if (/\brapport\b/.test(t)) return "rapport";
     if (/\b(gherkin|guerkin|gherkine|scenario|bdd)\b/.test(t)) return "gherkin";
@@ -1312,6 +1378,7 @@ URL : https://www.saucedemo.com/
 
   function executer(commande, texte = "") {
     if (commande.type === "arreter") return arreter();
+    if (commande.type === "relancer_echecs") return relancerEchecs();
     if (commande.type === "lancer_courant") return lancer();
     if (commande.type === "lancer") {
       const cas = etat.cas.find((c) => c.code === commande.code);
@@ -1324,7 +1391,7 @@ URL : https://www.saucedemo.com/
     if (commande.type === "ouvrir") return ouvrirFichier(commande.fichier);
     if (commande.type === "saluer") return annoncer(salutation(), { important: true });
     if (commande.type === "presenter") return annoncer(identite(), { important: true });
-    if (commande.type === "aide") return annoncer("Dites par exemple : lance la démo, lance le cas 1, arrête, ou ouvre le rapport. Vous pouvez aussi me parler librement : pourquoi le dernier test a échoué ? Ou dictez-moi un cas de test.", { important: true });
+    if (commande.type === "aide") return annoncer("Dites par exemple : lance la démo, lance le cas 1, relance les tests en échec, arrête, ou ouvre le rapport. Vous pouvez aussi me parler librement : pourquoi le dernier test a échoué ? Ou dictez-moi un cas de test.", { important: true });
     if (texte) return converser(texte);
     return annoncer("Je n'ai pas compris. Dites par exemple : lance la démo, ou lance le cas 1.", { important: true });
   }
@@ -1362,7 +1429,7 @@ URL : https://www.saucedemo.com/
       etat.historique.push({ role: "testeur", texte }, { role: "alfred", texte: r.reponse });
       if (!enMission && document.body.dataset.etat === "think") changerEtat(avant);
       // Pour un lancement, Alfred annonce déjà le départ de la mission : la réponse s'affiche sans être lue deux fois
-      annoncer(r.reponse, { important: true, interrompre: true, parler: r.action.type !== "lancer" });
+      annoncer(r.reponse, { important: true, interrompre: true, parler: !["lancer", "relancer_echecs"].includes(r.action.type) });
       afficherSources(r.sources);
       executerAction(r.action);
     } catch (erreur) {
@@ -1377,6 +1444,7 @@ URL : https://www.saucedemo.com/
   function executerAction(action) {
     if (!action || action.type === "aucune") return;
     if (action.type === "arreter") return arreter();
+    if (action.type === "relancer_echecs") return relancerEchecs();
     if (action.type === "ouvrir") return ouvrirFichier(action.fichier, action.url, action.titre);
     if (action.type === "lancer" || action.type === "selectionner") {
       const cas = etat.cas.find((c) => c.id === action.cas);
@@ -1385,6 +1453,8 @@ URL : https://www.saucedemo.com/
       choisirCas(cas);
       if (action.url) { $("url-mission").value = action.url; majSite(); }
       if (action.vision) $("option-vision").checked = true;
+      if (action.navigateur) $("option-navigateur").value = action.navigateur;  // « lance le cas 3 sur Firefox »
+      if (action.appareil !== undefined) choisirAppareil(action.appareil);  // « ... sur un iPhone »
       return action.type === "lancer" ? lancer() : undefined;
     }
     if (action.type === "rediger") {  // le cas dicté s'affiche ; « vas-y » le lance
@@ -1723,6 +1793,12 @@ URL : https://www.saucedemo.com/
     });
     for (const radio of document.querySelectorAll('input[name="moteur"]')) radio.addEventListener("change", () => ajusterMoteur(radio.value));
     $("option-pause").addEventListener("input", () => { etat.pauseTouchee = true; });
+    // Navigateur et appareil : gardés d'une visite à l'autre, sur cet ordinateur
+    $("option-navigateur").value = memoire.lire("navigateur", "chromium");
+    if (!$("option-navigateur").value) $("option-navigateur").value = "chromium";
+    choisirAppareil(memoire.lire("appareil", ""));
+    $("option-navigateur").addEventListener("change", (e) => memoire.ecrire("navigateur", e.target.value));
+    $("option-appareil").addEventListener("change", (e) => memoire.ecrire("appareil", e.target.value));
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
       e.preventDefault();
@@ -1759,7 +1835,7 @@ URL : https://www.saucedemo.com/
     }
   }
 
-  window.Alfred = { comprendre, etat, Propositions, converser };  // utilisé par les tests de l'interface
+  window.Alfred = { comprendre, etat, Propositions, converser, executerAction };  // utilisé par les tests de l'interface
   demarrer();
 })();
 </script>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Boutique Démo - Espace client</title>
+  <style>
+    body { font-family: sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
+    nav { display: flex; gap: 12px; margin: 16px 0; }
+    #contenu { min-height: 1.5em; }
+  </style>
+</head>
+<body>
+  <h1>Espace client</h1>
+  <p id="accueil" role="status"></p>
+  <nav id="menu" hidden>
+    <button type="button" data-test="commandes">Mes commandes</button>
+    <button type="button" data-test="deconnexion">Se déconnecter</button>
+  </nav>
+  <p id="contenu"></p>
+  <p><a id="connexion" href="inscription.html" hidden>Créer un compte</a></p>
+  <script>
+    // Connecté si la session est là : le cookie et le client du stockage local (voir inscription.html).
+    // Un test peut donc commencer ici déjà connecté, avec une session enregistrée par un autre test.
+    const cookie = document.cookie.split("; ").find((c) => c.startsWith("session_demo="));
+    let client = null;
+    try { client = JSON.parse(localStorage.getItem("client")); } catch { client = null; }
+    const accueil = document.getElementById("accueil");
+    if (cookie && client) {
+      accueil.textContent = `Bonjour ${client.prenom}, vous êtes connecté.`;
+      document.getElementById("menu").hidden = false;
+    } else {
+      accueil.textContent = "Accès refusé : connectez-vous d'abord.";
+      document.getElementById("connexion").hidden = false;
+    }
+    document.querySelector("[data-test=commandes]").addEventListener("click", () => {
+      document.getElementById("contenu").textContent = "Aucune commande pour l'instant.";
+    });
+    document.querySelector("[data-test=deconnexion]").addEventListener("click", () => {
+      document.cookie = "session_demo=; path=/; max-age=0";
+      localStorage.removeItem("client");
+      accueil.textContent = "Vous êtes déconnecté.";
+      document.getElementById("menu").hidden = true;
+    });
+  </script>
+</body>
+</html>

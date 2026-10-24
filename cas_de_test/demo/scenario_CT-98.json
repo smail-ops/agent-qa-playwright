@@ -1,0 +1,5 @@
+[
+  {"action": "click", "target": "[data-test=\"offres\"]", "reason": "Étape 1 : affichage des offres"},
+  {"action": "check_text", "args": {"text": "3 offres disponibles"}, "reason": "Résultat attendu : les offres s'affichent"},
+  {"action": "finish", "args": {"status": "PASS", "summary": "Offres affichées. Le bandeau de cookies, dans un cadre, a été accepté par le programme, sans IA."}, "reason": "Le résultat attendu est vérifié"}
+]

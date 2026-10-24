@@ -47,17 +47,33 @@ Ce sont de vrais sites, partagés par des milliers de testeurs. Quelques aléas 
 
 | Site | Ce qui peut arriver |
 |---|---|
-| Automation Exercise | Depuis l'Europe, une fenêtre de consentement aux cookies s'affiche à chaque navigateur neuf : chaque cas commence par l'accepter. Depuis la version 0.7, le programme l'accepte avant l'agent, sans IA (étape « cookies » du rapport). Une publicité plein écran de Google (l'adresse finit alors par #google_vignette) peut couvrir la page après un clic sur un lien. Un filtre anti-robot répond parfois « Please wait while your request is being verified... » à la place du site. |
+| Automation Exercise | Depuis l'Europe, une fenêtre de consentement aux cookies s'affiche à chaque navigateur neuf : chaque cas commence par l'accepter. Depuis la version 0.7, le programme l'accepte avant l'agent, sans IA (étape « cookies » du rapport). Une publicité plein écran de Google (l'adresse finit alors par #google_vignette) pouvait couvrir la page après un clic sur un lien : depuis la version 0.10, les requêtes des régies publicitaires sont bloquées, pour l'agent comme pour les tests générés. Un filtre anti-robot répond parfois « Please wait while your request is being verified... » à la place du site. |
 | ParaBank | La base est commune à tous les visiteurs. Si le compte john/demo ne fonctionne plus, la page Admin du site propose « Initialize », qui remet les données de démonstration. |
 | OrangeHRM | La démo est lente et ses données changent sans cesse. CT-26 ajoute un employé « Alfred Campagne » à chaque exécution. |
 | The Internet | Le site peut mettre quelques secondes à répondre au premier appel. |
 | UI Testing Playground | Le site est publié en http, sans https. |
 
-## Lancement, un site par jour
+## Lancement en une commande
 
-Chaque commande lance un cas avec le navigateur visible (`--headed`), une pause de 4 secondes entre deux actions pour l'offre gratuite de Gemini (`--pause 4`) et sans la mémoire des parcours (`--sans-memoire`), pour que chaque cas mesure vraiment le modèle. Si le quota du jour tombe en cours de route, le cas est noté « à relancer » dans le bilan : reprends le lendemain.
+```bash
+python -m agent.campagne --headed --pause 4
+```
 
-### Jour 1 : Automation Exercise
+La commande lance les vingt cas l'un après l'autre, dans l'ordre du tableau : navigateur visible (`--headed`), pause de 4 secondes entre deux actions pour l'offre gratuite de Gemini (`--pause 4`), sans la mémoire des parcours pour que chaque cas mesure vraiment le modèle, et avec la vision pour les cas dont la colonne « Vision » le demande (CT-30). À la fin, elle écrit le bilan dans `rapports/bilan_campagne.md`.
+
+Si le quota du jour tombe en cours de route, la campagne s'arrête proprement (code de sortie 4). Relance la même commande le lendemain : elle reprend au cas interrompu et passe ceux qui ont déjà un verdict. Le fichier `rapports/campagne_en_cours.json` garde la date de début de la campagne ; il disparaît quand tous les cas ont un verdict.
+
+- `--site parabank` ne lance qu'un site.
+- `--attendre` attend le renouvellement du quota (minuit en Californie) au lieu de s'arrêter, puis continue seule. L'ordinateur doit rester allumé : sur Mac, lance la commande derrière `caffeinate -i`.
+- `--nouvelle` repart de zéro, même si une campagne est en cours.
+- `--depuis 2026-10-24` compte comme faits les cas déjà exécutés depuis cette date.
+- `--navigateur firefox` ou `--appareil "iPhone 15"` lance toute la campagne avec un autre navigateur, ou sur un téléphone émulé.
+
+## Un cas à la fois
+
+Pour relancer un seul cas, par exemple après un aléa du site, chaque cas a sa commande, rangée par site. Chacune lance le cas avec le navigateur visible, la pause de 4 secondes et sans la mémoire des parcours (`--sans-memoire`). Le bilan retient la dernière exécution de chaque cas.
+
+### Automation Exercise
 
 ```bash
 python -m agent cas_de_test/terrain/automation_exercise/CT-17_recherche_produit.md --headed --pause 4 --sans-memoire
@@ -79,7 +95,7 @@ python -m agent cas_de_test/terrain/automation_exercise/CT-20_formulaire_de_cont
 python -m agent.bilan --site automation
 ```
 
-### Jour 2 : ParaBank
+### ParaBank
 
 ```bash
 python -m agent cas_de_test/terrain/parabank/CT-21_connexion_compte_demo.md --headed --pause 4 --sans-memoire
@@ -101,7 +117,7 @@ python -m agent cas_de_test/terrain/parabank/CT-24_virement_montant_negatif.md -
 python -m agent.bilan --site parabank
 ```
 
-### Jour 3 : OrangeHRM
+### OrangeHRM
 
 ```bash
 python -m agent cas_de_test/terrain/orangehrm/CT-25_connexion_administrateur.md --headed --pause 4 --sans-memoire
@@ -123,7 +139,7 @@ python -m agent cas_de_test/terrain/orangehrm/CT-28_filtre_par_role.md --headed 
 python -m agent.bilan --site orangehrm
 ```
 
-### Jour 4 : The Internet
+### The Internet
 
 CT-30 se lance avec la vision (`--vision`) : sans elle, l'agent ne voit pas les images.
 
@@ -147,7 +163,7 @@ python -m agent cas_de_test/terrain/the_internet/CT-32_editeur_de_texte.md --hea
 python -m agent.bilan --site internet
 ```
 
-### Jour 5 : UI Testing Playground
+### UI Testing Playground
 
 ```bash
 python -m agent cas_de_test/terrain/ui_testing_playground/CT-33_connexion_sample_app.md --headed --pause 4 --sans-memoire

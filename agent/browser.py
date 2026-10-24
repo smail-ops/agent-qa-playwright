@@ -14,7 +14,9 @@ Pour chaque élément, on calcule aussi un sélecteur lisible et stable
 (data-test, id, name...), son équivalent XPath et le chemin des cadres et des
 composants qui le contiennent. Ils ne servent pas à l'agent, mais aux tests
 générés à la fin (pytest et Robot Framework), qui doivent pouvoir rejouer le
-parcours sans IA.
+parcours sans IA. Au moment d'agir sur un élément, on cherche en plus le
+localisateur que recommande Playwright (get_by_role, get_by_label...) : le test
+pytest l'utilise quand il désigne exactement cet élément.
 """
 
 from __future__ import annotations
@@ -51,9 +53,11 @@ OPEN_SHADOW_JS = (
     "return original.call(this, options); }; ouvrir.agentOpen = true; Element.prototype.attachShadow = ouvrir; })();"
 )
 
-# Script exécuté dans la page (ou dans un cadre) pour lister les éléments interactifs.
+# Script exécuté dans la page (ou dans un cadre) pour lister les éléments interactifs. Au-delà de max éléments,
+# ceux qui sont à l'écran passent d'abord : sur une longue page, le modèle voit ce que verrait un testeur.
 _OBSERVE_JS = r"""
-({refAttr, max, start}) => {
+({refAttr, max, start, scan}) => {
+  const CAND = 'data-agent-candidat';  // élément retenu pendant l'examen, avant le choix des max éléments
   // Une liste ou une case à cocher transparente, posée sur un habillage personnalisé,
   // reste utilisable : seuls les autres éléments transparents sont ignorés.
   const control = (el) => el.matches('select, input[type=checkbox], input[type=radio], input[type=file]');
@@ -150,7 +154,10 @@ _OBSERVE_JS = r"""
     root.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot, hosts.concat([hostOf(el, root)])); });
   };
   walk(document, []);
-  roots.forEach(({root}) => root.querySelectorAll('[' + refAttr + ']').forEach((e) => e.removeAttribute(refAttr)));
+  roots.forEach(({root}) => root.querySelectorAll('[' + refAttr + '], [' + CAND + ']').forEach((e) => {
+    e.removeAttribute(refAttr);
+    e.removeAttribute(CAND);
+  }));
 
   // Chemin CSS depuis la racine d'un composant : querySelector ne connaît pas :has-text
   const pathIn = (el, root) => {
@@ -163,9 +170,9 @@ _OBSERVE_JS = r"""
     return parts.join(' > ');
   };
 
-  const elements = [];
+  const found = [];
   const add = (el, root, hosts) => {
-    if (elements.length >= max || el.hasAttribute(refAttr) || !visible(el)) return;
+    if (found.length >= scan || el.hasAttribute(CAND) || !visible(el)) return;
     const docRoot = root === document;
     const tag = el.tagName.toLowerCase();
     const type = el.getAttribute('type');
@@ -282,9 +289,8 @@ _OBSERVE_JS = r"""
       xpath = xpathFor(el, lastClass ? `//${tag}[contains(concat(" ", normalize-space(@class), " "), " ${lastClass} ")]` : `//${tag}`);
     }
 
-    const ref = start + elements.length + 1;
-    el.setAttribute(refAttr, String(ref));
-    elements.push({ref, tag, type, text: text.slice(0, 80), attrs, selector, nth, xpath, shadow: hosts.length ? hosts : null});
+    el.setAttribute(CAND, '1');
+    found.push({el, tag, type, text: text.slice(0, 80), attrs, selector, nth, xpath, shadow: hosts.length ? hosts : null});
   };
 
   const CANDIDATES = 'a[href], button, input:not([type=hidden]), select, textarea, ' +
@@ -300,8 +306,8 @@ _OBSERVE_JS = r"""
   let scanned = 0;
   for (const {root, hosts} of roots) {
     for (const el of root.querySelectorAll('div, span, li, td, p, img, svg')) {
-      if (elements.length >= max || ++scanned > 4000) break;
-      if (el.closest('[' + refAttr + ']') || el.querySelector('[' + refAttr + ']')) continue;
+      if (found.length >= scan || ++scanned > 4000) break;
+      if (el.closest('[' + CAND + ']') || el.querySelector('[' + CAND + ']')) continue;
       if (getComputedStyle(el).cursor !== 'pointer') continue;
       const parent = el.parentElement;
       if (parent && getComputedStyle(parent).cursor === 'pointer') continue;
@@ -310,9 +316,20 @@ _OBSERVE_JS = r"""
     }
   }
 
+  // Trop d'éléments : ceux qui sont à l'écran d'abord, puis l'ordre de la page. Les numéros suivent l'ordre de la page.
+  const onScreen = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.right > 0 && r.top < window.innerHeight && r.left < window.innerWidth;
+  };
+  found.forEach((item, index) => { item.index = index; item.screen = onScreen(item.el) ? 1 : 0; });
+  const kept = found.length <= max ? found
+    : found.slice().sort((a, b) => (b.screen - a.screen) || (a.index - b.index)).slice(0, max).sort((a, b) => a.index - b.index);
+  kept.forEach((item, position) => item.el.setAttribute(refAttr, String(start + position + 1)));
+  roots.forEach(({root}) => root.querySelectorAll('[' + CAND + ']').forEach((e) => e.removeAttribute(CAND)));
+  const elements = kept.map(({el, index, screen, ...rest}, position) => ({ref: start + position + 1, ...rest}));
   const shadowTexts = roots.slice(1).map(({root}) => shownText(root)).filter(Boolean);
-  return {elements, text: clean(document.body ? document.body.innerText : ''), shadow_text: shadowTexts.join(' '),
-          closed: window.agentClosedShadows || 0};
+  return {elements, more: found.length - kept.length, text: clean(document.body ? document.body.innerText : ''),
+          shadow_text: shadowTexts.join(' '), closed: window.agentClosedShadows || 0};
 }
 """
 
@@ -386,6 +403,7 @@ class Element:
     xpath: str | None = None  # même élément en XPath, pour Selenium et Robot Framework
     shadow: list | None = None  # hôtes des Shadow DOM qui le contiennent : [{"css", "nth"}], du document vers l'élément
     frame: list | None = None  # cadres (iframes) qui le contiennent : [{"css", "nth", "label"}], de la page vers l'élément
+    playwright: str | None = None  # localisateur recommandé par Playwright, vérifié dans la page : get_by_role(...)
 
     def editable(self) -> bool:
         """Zone de texte riche (contenteditable), comme le corps d'un éditeur TinyMCE."""
@@ -479,6 +497,7 @@ class Observation:
     tabs: list = field(default_factory=list)  # titres des onglets ouverts
     tab: int = 1  # onglet observé, à partir de 1
     closed_shadows: int = 0  # composants web fermés, ouverts pour le test
+    more: int = 0  # éléments interactifs laissés de côté (au-delà de la limite), hors de l'écran
 
     def find(self, ref: int) -> Element | None:
         return next((e for e in self.elements if e.ref == ref), None)
@@ -497,6 +516,9 @@ class Observation:
         lines.extend(e.describe() for e in self.elements)
         if not self.elements:
             lines.append("(aucun)")
+        if self.more:  # la liste est limitée : ceux qui sont à l'écran passent d'abord
+            lines.append(f"(et {self.more} autre{'s' if self.more > 1 else ''} plus loin dans la page : fais défiler pour "
+                         f"{'les' if self.more > 1 else 'le'} voir)")
         return "\n".join(lines)
 
 
@@ -516,6 +538,7 @@ class ActionResult:
     target: Element | None = None  # glisser-déposer : l'élément où l'on dépose
     page: object | None = field(default=None, repr=False, compare=False)  # onglet où continuer, s'il a changé
     opened_tab: bool = False  # l'action a ouvert un nouvel onglet
+    frames_checked: list | None = None  # vérification « absent » : les cadres (iframes) regardés en plus de la page
 
 
 class DialogWatcher:
@@ -561,6 +584,31 @@ def tabs(context) -> TabWatcher:
         context.on("page", watcher.handle)
         context._agent_tabs = watcher
     return watcher
+
+
+# Régies publicitaires : leurs requêtes sont bloquées. Une publicité plein écran (l'adresse finit alors par
+# #google_vignette) couvrirait la page après un clic, et rien de ce qu'elle affiche n'est l'objet du test.
+# Expression régulière compatible JavaScript : Playwright la compare à chaque adresse dans le navigateur.
+AD_DOMAINS = ("googlesyndication.com", "doubleclick.net", "googleadservices.com", "googletagservices.com",
+              "adservice.google.com", "adservice.google.fr", "amazon-adsystem.com", "adnxs.com", "criteo.com", "criteo.net",
+              "taboola.com", "outbrain.com", "pubmatic.com", "rubiconproject.com", "openx.net", "smartadserver.com",
+              "adsrvr.org", "moatads.com", "media.net")
+AD_URLS = re.compile(r"^https?://([^/?#]*\.)?(" + "|".join(re.escape(domain) for domain in AD_DOMAINS) + r")(:\d+)?([/?#]|$)")
+
+
+class AdBlocker:
+    """Bloque les requêtes des régies publicitaires dans tout le navigateur, et les compte (pour le rapport)."""
+
+    def __init__(self, context) -> None:
+        self.count = 0
+        context.route(AD_URLS, self._abort)
+
+    def _abort(self, route) -> None:
+        self.count += 1
+        try:
+            route.abort("blockedbyclient")
+        except PlaywrightError:
+            pass  # page fermée entre-temps
 
 
 def open_closed_shadows(context) -> None:
@@ -633,21 +681,27 @@ def _joined(data: dict) -> str:
     return " ".join(part for part in (data.get("text"), data.get("shadow_text")) if part)
 
 
-def observe(page: Page, max_elements: int = 80) -> Observation:
-    """Photographie l'état de la page : URL, titre, texte et éléments numérotés, cadres compris."""
-    data = page.evaluate(_OBSERVE_JS, {"refAttr": REF_ATTR, "max": max_elements, "start": 0})
+def observe(page: Page, max_elements: int = 80, scan: int = 250) -> Observation:
+    """Photographie l'état de la page : URL, titre, texte et éléments numérotés, cadres compris.
+
+    Au plus max_elements éléments sont numérotés : au-delà, ceux qui sont à l'écran passent d'abord
+    (scan : éléments examinés au plus par document). Le modèle sait combien d'autres sont plus loin.
+    """
+    data = page.evaluate(_OBSERVE_JS, {"refAttr": REF_ATTR, "max": max_elements, "start": 0, "scan": scan})
     elements = [Element(**item) for item in data["elements"]]
+    more = data.get("more", 0)
     frames, frame_texts = {}, []
     for frame, path in _frames(page):
         try:
             found = frame.evaluate(_OBSERVE_JS, {"refAttr": REF_ATTR, "max": max(max_elements - len(elements), 0),
-                                                 "start": len(elements)})
+                                                 "start": len(elements), "scan": scan})
         except PlaywrightError:
             continue  # cadre en cours de chargement ou fermé entre-temps
         for item in found["elements"]:
             element = Element(**item, frame=path)
             elements.append(element)
             frames[element.ref] = frame
+        more += found.get("more", 0)
         if _joined(found):
             frame_texts.append((path[-1]["label"], _joined(found)))
     pages = page.context.pages
@@ -659,12 +713,182 @@ def observe(page: Page, max_elements: int = 80) -> Observation:
             titles.append(other.url)
     return Observation(url=page.url, title=page.title(), text=_joined(data), elements=elements,
                        frame_texts=frame_texts, frames=frames, tabs=titles,
-                       tab=pages.index(page) + 1 if page in pages else 1, closed_shadows=data.get("closed", 0))
+                       tab=pages.index(page) + 1 if page in pages else 1, closed_shadows=data.get("closed", 0), more=more)
 
 
 def _short_error(exc: Exception) -> str:
     """Première ligne du message d'erreur Playwright, souvent très long."""
     return str(exc).strip().splitlines()[0][:300] if str(exc).strip() else exc.__class__.__name__
+
+
+# --- Vision : la capture envoyée au modèle, données personnelles cachées --------------------------
+
+MASK_ATTR = "data-agent-masque"  # attribut temporaire posé sur ce qu'il faut cacher sur la capture
+# Marque le plus petit élément qui affiche une donnée personnelle (texte, ou valeur d'un champ), Shadow DOM compris
+_MARK_JS = r"""
+({values, attr}) => {
+  const wanted = values.map((v) => v.replace(/\s+/g, ' ').toLowerCase());
+  const hit = (text) => { const t = (text || '').replace(/\s+/g, ' ').toLowerCase(); return wanted.some((v) => t.includes(v)); };
+  let count = 0;
+  const mark = (el) => { if (el && !el.hasAttribute(attr)) { el.setAttribute(attr, ''); count++; } };
+  const visit = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) if (hit(node.textContent)) mark(node.parentElement);
+    root.querySelectorAll('input, textarea').forEach((el) => { if (hit(el.value)) mark(el); });
+    root.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) visit(el.shadowRoot); });
+  };
+  visit(document);
+  return count;
+}
+"""
+_UNMARK_JS = r"""
+(attr) => {
+  const visit = (root) => {
+    root.querySelectorAll('[' + attr + ']').forEach((el) => el.removeAttribute(attr));
+    root.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) visit(el.shadowRoot); });
+  };
+  visit(document);
+}
+"""
+
+
+def _personal_field(element: Element, known: str) -> bool:
+    """Un champ de nom ou d'adresse rempli, dont le cas de test ne donne pas la valeur : caché sur la capture."""
+    attrs = element.attrs or {}
+    value = attrs.get("value") or ""
+    if not value or value.lower() in known.lower():
+        return False
+    if (attrs.get("autocomplete") or "").lower() in PERSONAL_AUTOCOMPLETE:
+        return True
+    from .masquage import PERSONAL_FIELD
+
+    return bool(PERSONAL_FIELD.search(" ".join(str(attrs.get(key) or "") for key in ("name", "id", "label", "placeholder",
+                                                                                     "aria", "test_id"))))
+
+
+def vision_screenshot(page: Page, observation: Observation, known: str = "", secrets: list[str] = ()) -> bytes:
+    """La capture JPEG envoyée au modèle avec la vision : les données personnelles sont sous un rectangle noir.
+
+    Ce sont les mêmes que celles masquées dans le texte (e-mails, téléphones, cartes, IBAN, noms, adresses),
+    sauf celles que le cas de test donne lui-même (known) : l'agent doit pouvoir les vérifier. Les mots de passe
+    du cas (secrets) sont cachés aussi, si la page les affiche.
+    """
+    from .masquage import sensitive_values
+
+    texts = [observation.text] + [text for _, text in observation.frame_texts]
+    texts += [(element.attrs or {}).get("value") or "" for element in observation.elements]
+    values = sensitive_values("\n".join(texts), known) + [secret for secret in secrets if secret]
+    scopes = [page.main_frame] + list({id(frame): frame for frame in observation.frames.values()}.values())
+    masks = []
+    for scope in scopes:
+        try:
+            if values and scope.evaluate(_MARK_JS, {"values": values, "attr": MASK_ATTR}):
+                masks.append(scope.locator(f"[{MASK_ATTR}]"))
+        except PlaywrightError:
+            continue  # cadre fermé entre-temps
+    for element in observation.elements:
+        if _personal_field(element, known):
+            masks.append((observation.frames.get(element.ref) or page.main_frame).locator(f'[{REF_ATTR}="{element.ref}"]'))
+    try:
+        return page.screenshot(type="jpeg", quality=55, mask=masks, mask_color="#000000")
+    finally:
+        for scope in scopes:
+            try:
+                scope.evaluate(_UNMARK_JS, MASK_ATTR)
+            except PlaywrightError:
+                continue
+
+
+# --- Localisateurs recommandés par Playwright, pour le test pytest généré -------------------------
+#
+# Playwright conseille de désigner un élément comme le voit l'utilisateur : par son rôle et son nom
+# (get_by_role), son libellé (get_by_label), son texte d'aide (get_by_placeholder) ou son texte affiché.
+# Ces localisateurs survivent mieux aux changements de mise en page qu'un sélecteur CSS. Chaque candidat
+# est essayé dans la page, au moment de l'action : on ne garde que celui qui trouve exactement cet élément.
+
+_INPUT_ROLES = {"submit": "button", "button": "button", "reset": "button", "image": "button", "checkbox": "checkbox",
+                "radio": "radio", "range": "slider", "number": "spinbutton", "search": "searchbox", "email": "textbox",
+                "tel": "textbox", "text": "textbox", "url": "textbox", "": "textbox"}  # password, file : sans rôle
+_ARIA_ROLES = {"button", "link", "checkbox", "radio", "switch", "tab", "option", "menuitem", "menuitemcheckbox",
+               "menuitemradio", "combobox", "listbox", "textbox", "searchbox", "spinbutton", "slider", "treeitem",
+               "gridcell", "row", "cell", "img", "heading", "dialog", "alert", "status"}
+MAX_SAME = 5  # plusieurs éléments de même rôle et même nom : on prend le n-ième, jusqu'à ce nombre
+
+
+def implicit_role(element: Element) -> str | None:
+    """Rôle ARIA de l'élément : celui de l'attribut role, sinon celui de sa balise (un lien, un bouton, un champ)."""
+    role = ((element.attrs or {}).get("role") or "").strip().lower().split()
+    if role:
+        return role[0] if role[0] in _ARIA_ROLES else None
+    if element.tag == "a":
+        return "link"
+    if element.tag == "button":
+        return "button"
+    if element.tag == "input":
+        return _INPUT_ROLES.get((element.type or "").lower())
+    return {"select": "combobox", "textarea": "textbox"}.get(element.tag)
+
+
+def _call(method: str, *args, **kwargs) -> str:
+    """Le code de l'appel : get_by_role('button', name='Connexion', exact=True)."""
+    parts = [repr(arg) for arg in args] + [f"{name}={value!r}" for name, value in kwargs.items()]
+    return f"{method}({', '.join(parts)})"
+
+
+def _candidates(element: Element) -> list[tuple[str, tuple, dict]]:
+    """Les localisateurs à essayer, dans l'ordre conseillé par Playwright."""
+    attrs = element.attrs or {}
+    field = element.is_field()
+    text = element.text if len(element.text) < 80 else ""  # un texte coupé ne se compare pas exactement
+    found: list[tuple[str, tuple, dict]] = []
+    if attrs.get("test_attr") == "data-testid":  # l'attribut que Playwright connaît sans réglage
+        found.append(("get_by_test_id", (attrs["test_id"],), {}))
+    role = implicit_role(element)
+    if role:
+        names = [attrs.get("aria"), attrs.get("label"), None if field else text, attrs.get("title"),
+                 attrs.get("placeholder") if field else None]
+        for name in dict.fromkeys(name for name in names if name):
+            found.append(("get_by_role", (role,), {"name": name, "exact": True}))
+    if field and attrs.get("label"):
+        found.append(("get_by_label", (attrs["label"],), {"exact": True}))
+    if field and attrs.get("placeholder"):
+        found.append(("get_by_placeholder", (attrs["placeholder"],), {"exact": True}))
+    if not field and text:
+        found.append(("get_by_text", (text,), {"exact": True}))
+    if attrs.get("title"):
+        found.append(("get_by_title", (attrs["title"],), {"exact": True}))
+    return found
+
+
+def _stable(element: Element) -> bool:
+    """Le sélecteur CSS désigne déjà l'élément seul, par un attribut de test ou un id stable ([data-test="detail-2"])."""
+    return element.nth is None and (bool((element.attrs or {}).get("test_id")) or element.selector.startswith("#"))
+
+
+def recommend(scope, element: Element) -> str | None:
+    """Le localisateur recommandé par Playwright qui désigne cet élément, vérifié dans la page, ou None.
+
+    scope : la page, ou le cadre (iframe) qui contient l'élément. Les localisateurs get_by_* de
+    Playwright entrent seuls dans les composants web (Shadow DOM ouvert). Quand aucun ne le désigne seul,
+    le n-ième de la liste ne sert que si le sélecteur CSS n'est pas plus sûr : dans une liste rechargée
+    par l'API, le rang d'un bouton change, son attribut de test non.
+    """
+    ref = str(element.ref)
+    fallback = None  # plusieurs éléments identiques : le n-ième, si rien ne le désigne seul
+    for method, args, kwargs in _candidates(element):
+        try:
+            locator = getattr(scope, method)(*args, **kwargs)
+            count = locator.count()
+            if count == 1:
+                if locator.get_attribute(REF_ATTR, timeout=1000) == ref:
+                    return _call(method, *args, **kwargs)
+            elif 1 < count <= MAX_SAME and fallback is None and method in ("get_by_role", "get_by_text"):
+                index = locator.evaluate_all(f"(els, ref) => els.findIndex((e) => e.getAttribute('{REF_ATTR}') === ref)", ref)
+                if index >= 0:
+                    fallback = f"{_call(method, *args, **kwargs)}.nth({index})"
+        except PlaywrightError:
+            continue
+    return None if _stable(element) else fallback
 
 
 def visible_text(page: Page) -> str:
@@ -780,6 +1004,8 @@ def _run(page: Page, action: Action, observation: Observation | None, timeout_ms
             # Un élément d'un cadre se cherche dans ce cadre ; Playwright entre seul dans les Shadow DOM
             scope = observation.frames.get(element.ref) or page
             locator = scope.locator(f'[{REF_ATTR}="{element.ref}"]')
+            if element.playwright is None:  # avant l'action, qui peut changer la page : pour le test pytest
+                element.playwright = recommend(scope, element)
             if action.name == "check_value":
                 return _check_value(page, locator, element, args["value"], timeout_ms, args.get("regex", False))
             if action.name == "check_state":
@@ -820,6 +1046,8 @@ def _run(page: Page, action: Action, observation: Observation | None, timeout_ms
                     return ActionResult(False, f"Aucun élément [{args['to']}] sur la page actuelle", element)
                 if observation.frames.get(target.ref) is not observation.frames.get(element.ref):
                     return ActionResult(False, "Glisser-déposer impossible entre deux cadres différents", element)
+                if target.playwright is None:
+                    target.playwright = recommend(scope, target)
                 locator.drag_to(scope.locator(f'[{REF_ATTR}="{target.ref}"]'), timeout=timeout_ms)
                 _settle(page)
                 return ActionResult(True, f"{element.describe()} glissé sur {target.describe()}", element, target=target)
@@ -873,10 +1101,13 @@ def _run(page: Page, action: Action, observation: Observation | None, timeout_ms
         if action.name == "check_text":
             text, absent = args["text"], args.get("absent", False)
             if absent:  # vérification négative : le texte ne doit apparaître ni dans la page, ni dans ses cadres
-                gone, _, _ = _wait_text(page, text, CHECK_TIMEOUT_MS / 1000, present=False)
+                gone, where, _ = _wait_text(page, text, CHECK_TIMEOUT_MS / 1000, present=False)
+                frames = [path for _, path in _frames(page)] or None  # les tests générés regardent les mêmes cadres
                 if gone:
-                    return ActionResult(True, f"Texte « {text} » absent, comme attendu", check=True)
-                return ActionResult(True, f"Texte « {text} » présent alors qu'il devrait être absent", check=False)
+                    return ActionResult(True, f"Texte « {text} » absent, comme attendu", check=True, frames_checked=frames)
+                place = f" (dans le cadre « {where[0][-1]['label']} »)" if where and where[0] else ""
+                return ActionResult(True, f"Texte « {text} » présent{place} alors qu'il devrait être absent", check=False,
+                                    frames_checked=frames)
             found, where, _ = _wait_text(page, text, CHECK_TIMEOUT_MS / 1000)
             if not found:
                 return ActionResult(True, f"Texte « {text} » absent de la page", check=False)

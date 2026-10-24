@@ -126,8 +126,12 @@ def test_clavier_et_souris_dans_le_rapport(run93):
 
 def test_clavier_et_souris_dans_les_tests_generes(run93, pw_browser, tmp_path):
     code = generate_script(run93)
-    for line in ("page.locator('#recherche').press('Enter')", "page.locator('#catalogue').hover()",
-                 "page.locator('#titre-projet').dblclick()", "page.locator('#zone-fichier').click(button='right')",
+    # Localisateurs recommandés par Playwright : le rôle et le nom de l'élément, vérifiés dans la page
+    for line in ("page.get_by_role('searchbox', name='Recherche', exact=True).press('Enter')",
+                 "page.get_by_role('button', name='Catalogue', exact=True).hover()",
+                 "page.get_by_role('link', name='Nouveautés', exact=True).click()",
+                 "page.get_by_role('button', name='Projet sans nom', exact=True).dblclick()",
+                 "page.get_by_role('button', name='Fichier rapport.pdf', exact=True).click(button='right')",
                  "page.keyboard.press('Escape')", "page.evaluate('window.scrollTo(0, document.body.scrollHeight)')"):
         assert line in code, line
     replay_pytest(run93, pw_browser)
@@ -174,17 +178,19 @@ def test_onglets_fichiers_dans_les_tests_generes(run94, pw_browser, tmp_path):
     assert """    page.context.add_init_script(OUVRIR_COMPOSANTS)
     page.goto('{url}')
     with page.expect_popup() as nouvel_onglet:
-        page.locator('#lien-fiche').click()
+        page.get_by_role('link', name='Ouvrir la fiche produit', exact=True).click()
     page = nouvel_onglet.value
 """.format(url=run94.case.url) in code
-    for line in ("page = page.context.pages[0]  # onglet n°1", "page.locator('#piece-jointe').set_input_files(DOSSIER / 'facture.txt')",
-                 "page.locator('#carte').drag_to(page.locator('#termine'))",
-                 "page.locator('note-fermee').locator('#note-interne').fill('À relire lundi')"):
+    for line in ("page = page.context.pages[0]  # onglet n°1",
+                 "page.get_by_label('Pièce jointe', exact=True).set_input_files(DOSSIER / 'facture.txt')",
+                 "page.get_by_text('Tâche : relire le cahier de tests', exact=True).drag_to(page.get_by_text('Terminé', exact=True))",
+                 # Dans un composant fermé, ouvert pour le test : get_by_role y entre seul
+                 "page.get_by_role('textbox', name='Note interne', exact=True).fill('À relire lundi')"):
         assert line in code, line
     replay_pytest(run94, pw_browser)
 
     robot = generate_robot(run94)
-    for line in ("Ouvrir les composants fermés", "Click Element    css:#lien-fiche\n    Switch Window    NEW",
+    for line in ("Ouvrir les composants fermés", "Cliquer    css:#lien-fiche\n    Switch Window    NEW",
                  "@{onglets}=    Get Window Handles\n    Switch Window    ${onglets}[0]",
                  "Choose File    css:#piece-jointe    ${CURDIR}${/}facture.txt", "Glisser-déposer    css:#carte    css:#termine"):
         assert f"    {line}\n" in robot, line

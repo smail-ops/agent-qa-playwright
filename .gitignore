@@ -13,6 +13,9 @@ rapports/
 # Mémoire des parcours réussis (contient les données de test saisies)
 memoire/
 
+# Sessions enregistrées (cookies de connexion du compte de test)
+sessions/
+
 # Journaux de Robot Framework et captures de SeleniumLibrary en cas d'échec
 output.xml
 log.html

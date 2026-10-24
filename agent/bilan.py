@@ -14,8 +14,10 @@ dernière exécution, puis compte :
 - les BLOQUÉ à tort : l'agent ne conclut pas alors qu'on attendait PASS ou FAIL ;
 - les appels au modèle et la durée des exécutions.
 
-Une exécution interrompue (quota du jour épuisé, réseau coupé, arrêt demandé)
-n'est pas un verdict de l'agent : le cas est noté « à relancer ».
+Une exécution interrompue (quota du jour épuisé, réseau coupé, arrêt demandé,
+session à enregistrer d'abord) n'est pas un verdict de l'agent : le cas est noté
+« à relancer ». Pour lancer toute la campagne en une commande, avec reprise
+après le quota : python -m agent.campagne.
 
 Exemples :
     python -m agent.bilan
@@ -182,11 +184,12 @@ class Execution:
     echecs: list[str] = field(default_factory=list)  # vérifications en échec
     diagnostic: dict | None = None  # avis de l'IA sur l'échec
     modele: str = ""
+    interruption: str = ""  # quota_jour, quota, modele, arret ou session (resultat.json depuis la version 0.10)
 
     @property
     def interrompue(self) -> bool:
-        """Arrêt demandé, ou modèle muet (quota du jour, réseau) : ce n'est pas un verdict de l'agent."""
-        coupee = self.conclusion == STOPPED_SUMMARY or self.conclusion.startswith(MODEL_ERROR)
+        """Arrêt demandé, modèle muet (quota du jour, réseau) ou session à enregistrer d'abord : pas un verdict de l'agent."""
+        coupee = bool(self.interruption) or self.conclusion == STOPPED_SUMMARY or self.conclusion.startswith(MODEL_ERROR)
         return self.statut == "BLOQUE" and coupee
 
 
@@ -235,6 +238,7 @@ def execution_depuis(data: object, dossier: str) -> Execution | None:
         echecs=[str(e) for e in echecs] if isinstance(echecs, list) else [],
         diagnostic=diagnostic if isinstance(diagnostic, dict) else None,
         modele=str(data.get("modele") or ""),
+        interruption=str(data.get("interruption") or ""),
     )
 
 
@@ -313,17 +317,27 @@ def correspond(site: str, filtre: str | None) -> bool:
     return filtre is None or _cle(filtre) in _cle(site)
 
 
-def comparer(campagne: list[CasAttendu], executions: list[Execution], *, depuis: date | None = None,
+def dans_la_periode(execution: Execution, depuis: date | datetime | None, jusqua: date | None) -> bool:
+    """depuis : un jour (à partir de ce jour) ou un instant précis (le début d'une campagne lancée en une commande)."""
+    if not (depuis or jusqua):
+        return True
+    if execution.debut is None:
+        return False
+    if isinstance(depuis, datetime):  # datetime est aussi une date : on le teste en premier
+        if execution.debut < depuis:
+            return False
+    elif depuis and execution.debut.date() < depuis:
+        return False
+    return not (jusqua and execution.debut.date() > jusqua)
+
+
+def comparer(campagne: list[CasAttendu], executions: list[Execution], *, depuis: date | datetime | None = None,
              jusqua: date | None = None, site: str | None = None) -> list[Ligne]:
     """Chaque cas de la campagne (ou d'un seul site), avec son exécution retenue dans la période choisie."""
     par_code: dict[str, list[Execution]] = {}
     for execution in executions:
-        jour = execution.debut.date() if execution.debut else None
-        if (depuis or jusqua) and jour is None:
-            continue
-        if (depuis and jour < depuis) or (jusqua and jour > jusqua):
-            continue
-        par_code.setdefault(execution.code, []).append(execution)
+        if dans_la_periode(execution, depuis, jusqua):
+            par_code.setdefault(execution.code, []).append(execution)
     lignes = []
     for cas in campagne:
         if not correspond(cas.site, site):
@@ -413,7 +427,9 @@ def rendu_markdown(lignes: list[Ligne], *, campagne: Path, rapports: Path, sorti
     portee = [f"campagne `{campagne.as_posix()}`", f"rapports `{rapports.as_posix()}`"]
     if site:
         portee.append(f"site « {site} »")
-    if depuis:
+    if isinstance(depuis, datetime):  # campagne lancée en une commande : depuis son début
+        portee.append(f"exécutions à partir du {depuis:%d/%m/%Y à %H:%M}")
+    elif depuis:
         portee.append(f"exécutions à partir du {depuis:%d/%m/%Y}")
     if jusqua:
         portee.append(f"exécutions jusqu'au {jusqua:%d/%m/%Y}")
@@ -432,7 +448,7 @@ def rendu_markdown(lignes: list[Ligne], *, campagne: Path, rapports: Path, sorti
         f"| Faux PASS | {total.faux_pass} |",
         f"| Faux FAIL | {total.faux_fail} |",
         f"| BLOQUÉ à tort | {total.bloques_a_tort} |",
-        f"| À relancer (quota, réseau, arrêt) | {total.a_relancer} |",
+        f"| À relancer (quota, réseau, arrêt, session) | {total.a_relancer} |",
         f"| Non lancés | {total.non_lances} |",
         f"| Appels au modèle | {appels} |",
         f"| Durée des exécutions | {temps} |",

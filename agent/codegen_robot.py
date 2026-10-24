@@ -11,9 +11,14 @@ Exemple de test produit :
     CT-01 Connexion avec un utilisateur valide
         Ouvrir le navigateur    https://www.saucedemo.com/
         Input Text    css:#user-name    standard_user
-        Click Element    css:[data-test="login-button"]
+        Cliquer    css:[data-test="login-button"]
         Wait Until Location Contains    inventory
         La page affiche    Products
+
+Un clic passe par le mot-clé « Cliquer », écrit dans le fichier : si la page
+remplace l'élément au moment du clic (une liste rechargée par l'API, une
+application monopage), Selenium lève StaleElementReferenceException, et le clic
+est retenté avec l'élément cherché de nouveau.
 
 Les vérifications de texte passent par des mots-clés écrits dans le fichier :
 « La page affiche », « La page n'affiche pas », « La page affiche dans l'ordre »
@@ -42,6 +47,12 @@ mots de passe : après une connexion avec un mot de passe connu des fuites de
 données, comme secret_sauce sur SauceDemo, Chrome affiche une alerte « mot de
 passe compromis » qui interrompt le test. Le Chromium de Playwright, utilisé
 par l'agent, n'a pas cette alerte.
+
+Le test reprend aussi les conditions de l'exécution : le navigateur de l'agent
+(Chrome, Firefox, ou Safari pour WebKit), l'appareil émulé (émulation mobile de
+Chrome), la session reprise ou enregistrée (dossier sessions/, mots-clés
+« Reprendre la session » et « Enregistrer la session ») et {unique}, qui
+devient ${UNIQUE} : une valeur nouvelle à chaque lancement.
 """
 
 from __future__ import annotations
@@ -50,8 +61,10 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from .browser import OPEN_SHADOW_JS
+from .browser import AD_DOMAINS, OPEN_SHADOW_JS
 from .coffre import env_names, split
+from .donnees import FORMAT, morceaux
+from .navigateur import NOMS, SELENIUM, appareils
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -78,6 +91,43 @@ ${{DELAI}}          5s
 ${{OPTIONS_CHROME}}    add_experimental_option("prefs", {_PREFS})
 """
 
+
+def mobile_emulation(appareil: str) -> dict | None:
+    """L'émulation mobile de Chrome pour cet appareil : taille d'écran, densité, écran tactile, navigateur mobile."""
+    descriptor = appareils().get(appareil)
+    if not descriptor:
+        return None
+    viewport = descriptor.get("viewport") or {}
+    return {"deviceMetrics": {"width": viewport.get("width", 390), "height": viewport.get("height", 660),
+                              "pixelRatio": float(descriptor.get("device_scale_factor", 2)),
+                              "touch": bool(descriptor.get("has_touch", True))},
+            "userAgent": descriptor.get("user_agent", "")}
+
+
+def robot_variables(run: RunResult) -> str:
+    """La section *** Variables *** : le navigateur de l'agent, et l'appareil émulé par Chrome s'il y en a un."""
+    navigateur, appareil = getattr(run, "navigateur", "chromium") or "chromium", getattr(run, "appareil", None)
+    mobile = mobile_emulation(appareil) if appareil else None
+    if navigateur == "chromium" and mobile is None:
+        return VARIABLES
+    options = f'add_experimental_option("prefs", {_PREFS})'
+    if mobile is not None:
+        comment = (f"# Même appareil que l'agent ({appareil}), émulé par Chrome : Selenium n'émule un mobile qu'avec "
+                   "Chrome.")
+        browser = "chrome"
+        options += f';add_experimental_option("mobileEmulation", {mobile!r})'
+    elif navigateur == "webkit":
+        comment = ("# Même moteur que l'agent (WebKit) : Safari, sur Mac. À activer une fois dans le Terminal : "
+                   "safaridriver --enable")
+        browser = SELENIUM[navigateur]
+    else:
+        comment = f"# Même navigateur que l'agent : {NOMS[navigateur]}."
+        browser = SELENIUM[navigateur]
+    usage = " (et émulation de l'appareil)" if mobile else ""
+    return (f"*** Variables ***\n{comment}\n${{BROWSER}}        {browser}\n# Attente maximale d'un élément, d'un texte ou "
+            f"d'une URL.\n${{DELAI}}          5s\n# Préférences de Chrome, utilisées par le mot-clé « Ouvrir le navigateur »"
+            f"{usage}.\n${{OPTIONS_CHROME}}    {options}\n")
+
 _HEADER = """*** Settings ***
 Documentation     Test généré automatiquement par agent-qa-playwright.
 ...               Cas de test : {title}
@@ -101,10 +151,72 @@ _SECRETS = """Charger les mots de passe
 """
 
 
-def secret_cell(text: str, names: dict[str, str]) -> str:
-    """Une valeur pour Robot Framework : un mot de passe devient %{MOT_DE_PASSE_...}, lu dans le fichier .env."""
-    cell = "".join("%{" + value + "}" if is_secret else robot_arg(value) for is_secret, value in split(text, names) if value)
-    return cell or "${EMPTY}"
+def secret_cell(text: str, names: dict[str, str], unique: str | None = None) -> str:
+    """Une valeur pour Robot Framework : un mot de passe devient %{MOT_DE_PASSE_...}, lu dans le fichier .env,
+    et la valeur unique de l'agent devient ${UNIQUE}, recréée à chaque lancement."""
+    cells = []
+    for is_secret, value in split(text, names):
+        if not value:
+            continue
+        if is_secret:
+            cells.append("%{" + value + "}")
+            continue
+        cells += ["${UNIQUE}" if is_unique else robot_arg(chunk) for is_unique, chunk in morceaux(value, unique)]
+    return "".join(cells) or "${EMPTY}"
+
+
+value_cell = secret_cell  # le même mot-clé pour toute valeur tapée ou vérifiée
+
+# {unique} : une valeur nouvelle à chaque lancement, comme pour l'agent (voir donnees.py)
+UNIQUE_SETUP = "Test Setup        Créer la valeur unique\n"
+_UNIQUE = f"""Créer la valeur unique
+    [Documentation]    {{unique}} du cas de test : une valeur nouvelle à chaque lancement (mois, jour, heure, minutes,
+    ...    secondes), pour créer des données qui n'existent pas encore, comme un e-mail ou un identifiant.
+    ${{valeur}}=    Evaluate    datetime.datetime.now().strftime("{FORMAT}")    modules=datetime
+    Set Test Variable    ${{UNIQUE}}    ${{valeur}}
+"""
+
+# Sessions : le test reprend celle d'un autre test (déjà connecté), ou garde la sienne. Fichier sessions/<nom>.json,
+# au format storage_state de Playwright : l'agent, le test pytest et le test Robot partagent les mêmes sessions.
+_SESSION_LOAD = """Reprendre la session
+    [Documentation]    Le test commence déjà connecté : cookies et stockage local de la session enregistrée par le cas
+    ...    qui contient « Enregistrer la session : <nom> » (fichier sessions/<nom>.json, à la racine du projet).
+    [Arguments]    ${nom}
+    ${fichier}=    Evaluate    pathlib.Path("sessions") / ($nom + ".json")    modules=pathlib
+    ${existe}=    Evaluate    $fichier.is_file()
+    Skip If    not $existe    Session « ${nom} » absente du dossier sessions : lance d'abord le test qui l'enregistre.
+    ${session}=    Evaluate    json.loads($fichier.read_text(encoding="utf-8"))    modules=json
+    ${selenium}=    Get Library Instance    SeleniumLibrary
+    ${hote}=    Execute Javascript    return location.hostname
+    FOR    ${cookie}    IN    @{session}[cookies]
+        IF    $hote.endswith($cookie["domain"].lstrip("."))
+            ${pour_selenium}=    Evaluate    {"name": $cookie["name"], "value": $cookie["value"], "path": $cookie.get("path") or "/", "secure": bool($cookie.get("secure")), "httpOnly": bool($cookie.get("httpOnly")), **({"expiry": int($cookie["expires"])} if $cookie.get("expires", -1) > 0 else {})}
+            Run Keyword And Ignore Error    Evaluate    $selenium.driver.add_cookie($pour_selenium)
+        END
+    END
+    ${origine}=    Execute Javascript    return location.origin
+    FOR    ${site}    IN    @{session}[origins]
+        IF    $site["origin"] == $origine
+            FOR    ${entree}    IN    @{site}[localStorage]
+                Execute Javascript    localStorage.setItem(arguments[0], arguments[1])    ARGUMENTS    ${entree}[name]    ${entree}[value]
+            END
+        END
+    END
+    Reload Page
+"""
+
+_SESSION_SAVE = """Enregistrer la session
+    [Documentation]    Garde la session (cookies et stockage local) dans sessions/<nom>.json, au format de Playwright :
+    ...    les tests qui la reprennent commencent déjà connectés.
+    [Arguments]    ${nom}
+    ${selenium}=    Get Library Instance    SeleniumLibrary
+    ${cookies}=    Evaluate    [{"name": c["name"], "value": c["value"], "domain": c.get("domain", ""), "path": c.get("path", "/"), "expires": c.get("expiry", -1), "httpOnly": c.get("httpOnly", False), "secure": c.get("secure", False), "sameSite": c.get("sameSite", "Lax")} for c in $selenium.driver.get_cookies()]
+    ${origine}=    Execute Javascript    return location.origin
+    ${stockage}=    Execute Javascript    return Object.keys(localStorage).map((cle) => ({name: cle, value: localStorage.getItem(cle)}))
+    ${fichier}=    Evaluate    pathlib.Path("sessions") / ($nom + ".json")    modules=pathlib
+    Evaluate    $fichier.parent.mkdir(exist_ok=True)
+    Evaluate    $fichier.write_text(json.dumps({"cookies": $cookies, "origins": [{"origin": $origine, "localStorage": $stockage}]}, ensure_ascii=False, indent=2), encoding="utf-8")    modules=json
+"""
 
 
 def typing_keyword(element, secret: bool = False) -> str:
@@ -128,6 +240,16 @@ _OPEN = f"""Ouvrir le navigateur
     Set Window Size    {WINDOW_SIZE[0]}    {WINDOW_SIZE[1]}
 """
 
+# Avec un appareil émulé, Chrome donne à la page la taille de l'écran de l'appareil : pas de taille de fenêtre
+_OPEN_MOBILE = _OPEN.replace("Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.",
+                             "Ouvre le navigateur sur la page, avec l'appareil émulé par l'agent.").replace(
+    f"    Set Window Size    {WINDOW_SIZE[0]}    {WINDOW_SIZE[1]}\n", "")
+
+
+def open_block(run: RunResult) -> str:
+    """Le mot-clé « Ouvrir le navigateur » : à la taille de la fenêtre de l'agent, ou avec son appareil émulé."""
+    return _OPEN_MOBILE if getattr(run, "appareil", None) and mobile_emulation(run.appareil) else _OPEN
+
 # Texte affiché : innerText de la page, puis celui des composants web, que innerText ne contient pas.
 # Les lignes du code JavaScript sont mises bout à bout par SeleniumLibrary, sans espace.
 _VISIBLE = """Texte visible de la page
@@ -141,6 +263,16 @@ _VISIBLE = """Texte visible de la page
     ...    visiter(el.shadowRoot); } });
     ...    visiter(document); return parts.join(' ');
     RETURN    ${texte}
+"""
+
+# Un clic : si la page remplace l'élément au moment du clic, Selenium ne le retrouve plus. Playwright, lui, cherche
+# l'élément à chaque action : le test Robot fait de même en retentant le clic.
+_CLICK = """Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 """
 
 _SHOWS = """La page affiche
@@ -264,6 +396,19 @@ _COOKIES = """Accepter le bandeau de cookies
     END
 """
 
+# Bandeau dans un cadre (iframe) de consentement : le cadre n'existe pas quand le consentement est déjà donné
+_COOKIES_FRAME = """Accepter le bandeau de cookies du cadre
+    [Documentation]    Le bandeau est dans un cadre (iframe) posé sur la page, comme ceux de Sourcepoint ou de TrustArc :
+    ...    s'il s'affiche, le test entre dans le cadre et accepte, comme l'agent pendant l'exploration.
+    [Arguments]    ${cadre}    ${bouton}
+    ${affiche}=    Run Keyword And Return Status    Wait Until Element Is Visible    ${cadre}    ${DELAI}
+    IF    ${affiche}
+        Select Frame    ${cadre}
+        Accepter le bandeau de cookies    ${bouton}
+        Unselect Frame
+    END
+"""
+
 # Glisser-déposer HTML5 (attribut draggable) : Selenium ne sait pas le faire à la souris dans Chrome.
 # Le mot-clé envoie au navigateur les événements du glisser-déposer. Les lignes du code sont mises bout à bout.
 _DRAG = """Glisser-déposer
@@ -295,6 +440,23 @@ _CLOSED = f"""Ouvrir les composants fermés
     Reload Page
 """
 CLOSED_VARIABLE = f"# Script qui crée ouverts les composants web fermés (mot-clé « Ouvrir les composants fermés »).\n${{OUVRIR_COMPOSANTS}}    {OPEN_SHADOW_JS}\n"
+
+# Régies publicitaires bloquées, comme pendant l'exploration : une publicité plein écran couvrirait la page
+_ADS = f"""Bloquer les publicités
+    [Documentation]    Bloque les régies publicitaires, comme pendant l'exploration : une publicité plein écran (l'adresse
+    ...    finit alors par #google_vignette) couvrirait la page. Chrome seulement (commande CDP), puis la page est rechargée.
+    ${{chrome}}=    Evaluate    $BROWSER.lower().replace(" ", "") in {CHROME_NAMES!r}
+    IF    not ${{chrome}}
+        Log    Les publicités ne sont bloquées qu'avec Chrome : une publicité plein écran pourrait gêner le test.    level=WARN
+        RETURN
+    END
+    ${{selenium}}=    Get Library Instance    SeleniumLibrary
+    Evaluate    $selenium.driver.execute_cdp_cmd("Network.enable", {{}})
+    Evaluate    $selenium.driver.execute_cdp_cmd("Network.setBlockedURLs", {{"urls": $PUBLICITES}})
+    Reload Page
+"""
+ADS_VARIABLE = "# Adresses des régies publicitaires (mot-clé « Bloquer les publicités »).\n@{PUBLICITES}" + "".join(
+    f"    *{domain}*" for domain in AD_DOMAINS) + "\n"
 
 # Touches du clavier : nom Playwright -> nom Selenium, pour « Press Keys »
 _SELENIUM_KEYS = {"Enter": "ENTER", "Escape": "ESCAPE", "Tab": "TAB", "Backspace": "BACK_SPACE", "Delete": "DELETE",
@@ -424,15 +586,23 @@ def generate_robot(run: RunResult) -> str:
     keywords: list[str] = []  # mots-clés à écrire dans le fichier, selon les vérifications
     browser_open = False
     current: tuple = ()  # cadre sélectionné : localisateurs des iframes, depuis la page
+    unique = getattr(run, "unique", None)  # valeur de {unique} pendant l'exécution de l'agent : ${UNIQUE} ici
 
     def open_browser(url: str) -> None:
         nonlocal browser_open
-        lines.append(_keyword("Ouvrir le navigateur", robot_arg(url)))
-        if _OPEN not in keywords:
-            keywords.insert(0, _OPEN)
+        lines.append(_keyword("Ouvrir le navigateur", secret_cell(url, {}, unique)))
+        opening = open_block(run)
+        if opening not in keywords:
+            keywords.insert(0, opening)
         if run.closed_shadow:  # composants web fermés : ouverts avant d'agir, comme pendant l'exploration
             lines.append(_keyword("Ouvrir les composants fermés"))
             need(_CLOSED)
+        if getattr(run, "ads_blocked", 0):  # pas de publicité plein écran, comme pendant l'exploration
+            lines.append(_keyword("Bloquer les publicités"))
+            need(_ADS)
+        if run.case.session:  # déjà connecté : la session enregistrée par un autre test
+            lines.append(_keyword("Reprendre la session", robot_arg(run.case.session)))
+            need(_SESSION_LOAD)
         browser_open = True
 
     def enter(frame: list | None) -> None:
@@ -460,14 +630,14 @@ def generate_robot(run: RunResult) -> str:
         args = action.args
         if action.name == "goto":
             if browser_open:
-                lines.append(_keyword("Go To", robot_arg(args["url"])))
+                lines.append(_keyword("Go To", secret_cell(args["url"], {}, unique)))
             else:
                 open_browser(args["url"])
             current = ()  # une navigation revient toujours à la page
         else:
             if not browser_open:  # le navigateur doit être ouvert avant toute autre action
                 open_browser(run.case.url)
-            _step_lines(action, result, lines, enter, need, names)
+            _step_lines(action, result, lines, enter, need, names, unique)
             if result.opened_tab or action.name == "switch_tab":
                 current = ()  # un autre onglet : on part de sa page, sans cadre sélectionné
         if result.dialog is not None:  # fenêtre JavaScript ouverte par l'action
@@ -475,13 +645,21 @@ def generate_robot(run: RunResult) -> str:
             lines.append(_keyword(*answer))
             if answer[0] != "Input Text Into Alert":  # « Accepter la fenêtre » ou « Refuser la fenêtre »
                 need(_ALERTS)
+    if getattr(run, "session_saved", None) is not None and run.case.save_session:  # pour les tests déjà connectés
+        enter(None)
+        lines.append(_keyword("Enregistrer la session", robot_arg(run.case.save_session)))
+        need(_SESSION_SAVE)
 
     body = "\n".join(lines) or _keyword("No Operation")
-    variables = VARIABLES + (CLOSED_VARIABLE if run.closed_shadow else "")
+    variables = robot_variables(run) + (CLOSED_VARIABLE if run.closed_shadow else "") + \
+        (ADS_VARIABLE if getattr(run, "ads_blocked", 0) else "")
     setup = ""
     if "%{" in body:  # des mots de passe, lus dans le fichier .env avant le test
         setup = SECRETS_SETUP
         keywords.append(_SECRETS)
+    if "${UNIQUE}" in body:  # {unique} : une valeur nouvelle à chaque lancement
+        setup += UNIQUE_SETUP
+        keywords.append(_UNIQUE)
     code = _HEADER.format(title=robot_arg(run.case.title), setup=setup, variables=variables, name=robot_arg(run.case.title),
                           body=body)
     if keywords:
@@ -489,10 +667,18 @@ def generate_robot(run: RunResult) -> str:
     return code
 
 
-def _step_lines(action, result, lines: list[str], enter, need, names: dict | None = None) -> None:
-    """Lignes du test pour une action réussie (autre que l'ouverture d'une page)."""
+def _step_lines(action, result, lines: list[str], enter, need, names: dict | None = None, unique: str | None = None) -> None:
+    """Lignes du test pour une action réussie (autre que l'ouverture d'une page).
+
+    unique : la valeur de {unique} pendant l'exécution de l'agent, qui devient ${UNIQUE} dans le test.
+    """
     args = action.args
     element = result.element
+    names = names or {}
+
+    def cell(text: str) -> str:  # une valeur tapée ou vérifiée : mot de passe et valeur unique compris
+        return secret_cell(text, names, unique)
+
     if element is not None:
         enter(element.frame)
         if element.shadow and action.name in ("click", "fill", "select", "hover", "press", "scroll", "upload", "drag"):
@@ -500,12 +686,19 @@ def _step_lines(action, result, lines: list[str], enter, need, names: dict | Non
             lines.append(_keyword("Wait Until Page Contains Element", robot_arg(robot_locator(element))))
     if action.name == "cookies":  # bandeau accepté par le programme pendant l'exploration
         enter(None)
-        lines.append(_keyword("Accepter le bandeau de cookies", robot_arg(args["robot"])))
+        if args.get("cadre"):  # dans un cadre de consentement (iframe)
+            lines.append(_keyword("Accepter le bandeau de cookies du cadre", robot_arg(frame_locator(args["cadre"][-1])),
+                                  robot_arg(args["robot"])))
+            need(_COOKIES_FRAME)
+        else:
+            lines.append(_keyword("Accepter le bandeau de cookies", robot_arg(args["robot"])))
         need(_COOKIES)
     elif action.name == "click":
         keyword = "Double Click Element" if args.get("double") else \
-            "Open Context Menu" if args.get("button") == "right" else "Click Element"
+            "Open Context Menu" if args.get("button") == "right" else "Cliquer"
         lines.append(_keyword(keyword, robot_arg(robot_locator(element))))
+        if keyword == "Cliquer":
+            need(_CLICK)
         if result.opened_tab:  # le lien ouvre un nouvel onglet : le test y passe, comme l'agent
             lines.append(_keyword("Switch Window", "NEW"))
     elif action.name == "press":
@@ -539,42 +732,46 @@ def _step_lines(action, result, lines: list[str], enter, need, names: dict | Non
     elif action.name == "fill":
         if element.editable():  # Chrome ne tape dans une zone de texte riche qu'après un vrai clic
             lines.append(_keyword("Click Element", robot_arg(robot_locator(element))))
-        cell = secret_cell(args["text"], names or {})
-        lines.append(_keyword(typing_keyword(element, "%{" in cell), robot_arg(robot_locator(element)), cell))
+        typed = cell(args["text"])
+        lines.append(_keyword(typing_keyword(element, "%{" in typed), robot_arg(robot_locator(element)), typed))
     elif action.name == "select":
         locator = robot_arg(robot_locator(element))
         if result.value is not None:
-            lines.append(_keyword("Select From List By Value", locator, robot_arg(result.value)))
+            lines.append(_keyword("Select From List By Value", locator, cell(result.value)))
         else:
-            lines.append(_keyword("Select From List By Label", locator, robot_arg(args["value"])))
+            lines.append(_keyword("Select From List By Label", locator, cell(args["value"])))
     elif action.name == "wait":
         if "text" not in args:
             lines.append(_keyword("Sleep", f"{args['seconds']}s"))
         else:  # le texte peut être dans un cadre : on attend là où l'agent l'a trouvé
             enter(result.frame)
             lines.append(_keyword("Wait Until Keyword Succeeds", f"{args['seconds']}s", "500ms", "Le texte visible contient",
-                                  robot_arg(result.value or args["text"])))
+                                  cell(result.value or args["text"])))
             need(_SHOWS)
     elif action.name == "check_text":
         if args.get("absent"):
             enter(None)
-            lines.append(_keyword("La page n'affiche pas", robot_arg(args["text"])))
+            lines.append(_keyword("La page n'affiche pas", cell(args["text"])))
+            for frame in getattr(result, "frames_checked", None) or []:  # ni dans la page, ni dans ses cadres
+                enter(frame)
+                lines.append(_keyword("La page n'affiche pas", cell(args["text"])))
+            enter(None)
             need(_HIDES)
         else:
             enter(result.frame)
             # Texte tel qu'il apparaît sur la page (casse exacte), plus lisible dans le test
-            lines.append(_keyword("La page affiche", robot_arg(result.value or args["text"])))
+            lines.append(_keyword("La page affiche", cell(result.value or args["text"])))
             need(_SHOWS)
     elif action.name == "check_url":
         keyword = "Wait Until Location Does Not Contain" if args.get("absent") else "Wait Until Location Contains"
-        lines.append(_keyword(keyword, robot_arg(args["contains"])))
+        lines.append(_keyword(keyword, cell(args["contains"])))
     elif action.name == "check_order":
         enter(None)
-        lines.append(_keyword("La page affiche dans l'ordre", *(robot_arg(text) for text in args["texts"])))
+        lines.append(_keyword("La page affiche dans l'ordre", *(cell(text) for text in args["texts"])))
         need(_ORDER)
     elif action.name == "check_count":
         enter(None)
-        lines.append(_keyword("La page affiche ce nombre de fois", robot_arg(args["text"]), str(args["count"])))
+        lines.append(_keyword("La page affiche ce nombre de fois", cell(args["text"]), str(args["count"])))
         need(_COUNT)
     elif action.name in ("check_value", "check_state"):
         if action.name == "check_value":
@@ -583,7 +780,7 @@ def _step_lines(action, result, lines: list[str], enter, need, names: dict | Non
             value = result.value if element.reads_text() and result.check and result.value is not None and not regex \
                 else args["value"]
             keyword, block = value_keyword(element, regex)
-            checking = (keyword, robot_arg(robot_locator(element)), secret_cell(value, names or {}))
+            checking = (keyword, robot_arg(robot_locator(element)), value_cell(value, names) if regex else cell(value))
             need(block)
         else:
             keyword, *extra = _state_keyword(element, args["state"])

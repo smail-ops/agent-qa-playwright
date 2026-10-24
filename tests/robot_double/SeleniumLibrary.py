@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import re
 import time
+from urllib.parse import urlsplit
 
+import greenlet
 from playwright.sync_api import expect, sync_playwright
 from robot.api import logger
 from robot.utils import timestr_to_secs
@@ -34,12 +36,21 @@ _KEYS = {"ENTER": "Enter", "RETURN": "Enter", "ESCAPE": "Escape", "TAB": "Tab", 
 
 
 class _Driver:
-    """Le peu du pilote Selenium dont se servent les tests générés : une commande de Chrome (CDP)."""
+    """Le peu du pilote Selenium dont se servent les tests générés : une commande de Chrome (CDP) et les cookies."""
 
     def __init__(self, library):
         self._library = library
 
     def execute_cdp_cmd(self, command: str, params: dict):
+        if command == "Network.enable":
+            return {}
+        if command == "Network.setBlockedURLs":  # adresses avec jokers (*), comme Chrome : requêtes abandonnées
+            pattern = re.compile("|".join(".*".join(re.escape(part) for part in url.split("*")) for url in params["urls"]))
+            self._library.blocked = []
+            self._outside_robot(lambda: self._library._page.context.route(
+                lambda url: bool(pattern.fullmatch(url)),
+                lambda route: (self._library.blocked.append(route.request.url), route.abort())))
+            return {}
         if command != "Page.addScriptToEvaluateOnNewDocument":
             raise AssertionError(f"Commande CDP inattendue : {command}")
         # Appelée depuis « Evaluate » : Playwright, qui lit la pile d'appels, ne supporte pas l'espace de noms
@@ -47,6 +58,30 @@ class _Driver:
         # ce qui revient au même : comme avec Chrome, il ne s'exécute qu'au chargement suivant.
         self._library._init_scripts.append(params["source"])
         return {"identifier": str(len(self._library._init_scripts))}
+
+    def _outside_robot(self, call):
+        """Appelle Playwright depuis « Evaluate ». Pour nommer chaque appel, Playwright lit les variables locales de
+        chaque niveau de la pile d'appels, et l'espace de noms de Robot, qui en fait partie, refuse cette lecture
+        (NameError). L'appel part donc d'une pile neuve : celle d'un greenlet, qui ne remonte pas jusqu'à Robot.
+        Playwright, qui tourne lui-même sur des greenlets, revient à celui-ci quand la réponse arrive."""
+        return greenlet.greenlet(call).switch()
+
+    def get_cookies(self) -> list[dict]:
+        """Les cookies du navigateur, au format de Selenium (expiry au lieu d'expires)."""
+        cookies = self._outside_robot(lambda: self._library._page.context.cookies())
+        return [{"name": c["name"], "value": c["value"], "domain": c["domain"], "path": c["path"], "secure": c["secure"],
+                 "httpOnly": c["httpOnly"], "sameSite": c["sameSite"], **({"expiry": int(c["expires"])} if c["expires"] > 0 else {})}
+                for c in cookies]
+
+    def add_cookie(self, cookie: dict) -> None:
+        """Comme Selenium : le cookie est posé pour le site de la page affichée."""
+        page = self._library._page
+        host = urlsplit(page.url).hostname
+        entry = {"name": cookie["name"], "value": cookie["value"], "domain": cookie.get("domain") or host,
+                 "path": cookie.get("path", "/"), "secure": bool(cookie.get("secure")), "httpOnly": bool(cookie.get("httpOnly"))}
+        if "expiry" in cookie:
+            entry["expires"] = cookie["expiry"]
+        self._outside_robot(lambda: page.context.add_cookies([entry]))
 
 
 class SeleniumLibrary:
