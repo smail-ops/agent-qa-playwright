@@ -17,7 +17,11 @@ jobs:
       - name: Installer Chromium pour Playwright
         run: python -m playwright install --with-deps chromium
       - name: Lancer les tests (sans clé d'API, site de démo local)
-        run: pytest -v
+        run: pytest -v --junitxml=resultats-pytest/junit.xml
+      # Le journal d'un job n'est lisible qu'une fois connecté : les annotations, elles, s'affichent sur la page du run
+      - name: Afficher les tests en échec sur la page du run
+        if: failure()
+        run: python .github/pytest_echecs.py resultats-pytest/junit.xml
 
   robot:
     name: Tests Robot et Gherkin rejoués avec Selenium et Chrome
