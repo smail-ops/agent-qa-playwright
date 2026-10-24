@@ -9,11 +9,11 @@ On lui donne l'adresse d'un site, ou un cas de test écrit en français comme da
 | | Ce que fait l'agent |
 |---|---|
 | **Concevoir** | À partir d'une URL, il analyse le site et propose des **user stories** avec leurs critères d'acceptation en **Gherkin**, puis les **cas de test** d'une user story. |
-| **Exécuter** | Il exécute un cas de test, en Markdown ou en Gherkin, avec six familles de vérifications (texte, URL, ordre, nombre, valeur d'un champ ou son format, état d'un bouton ou d'une case). Il entre dans les **iframes** et les **composants web (Shadow DOM)**, même fermés, manie les **listes déroulantes maison**, répond aux **fenêtres JavaScript**, accepte le **bandeau de cookies** et **attend** un chargement lent. Il tape des **touches du clavier**, **survole**, **double-clique**, fait un **clic droit**, **fait défiler** la page, suit un **nouvel onglet**, **joint un fichier** et **glisse-dépose**. Avec la **vision**, le modèle voit aussi l'écran. |
-| **Industrialiser** | Chaque exécution génère un test **pytest-playwright**, un test **Robot Framework** (SeleniumLibrary) et un **scénario Gherkin** exécutable. Un parcours réussi est **mémorisé** et rejoué sans IA ; si le site change, l'IA répare le parcours (**auto-réparation**). |
+| **Exécuter** | Il exécute un cas de test, en Markdown ou en Gherkin, avec six familles de vérifications (texte, URL, ordre, nombre, valeur d'un champ ou son format, état d'un bouton ou d'une case). Il entre dans les **iframes** et les **composants web (Shadow DOM)**, même fermés, manie les **listes déroulantes maison**, répond aux **fenêtres JavaScript**, accepte le **bandeau de cookies** (même dans un cadre), bloque les **publicités** plein écran et **attend** un chargement lent. Il tape des **touches du clavier**, **survole**, **double-clique**, fait un **clic droit**, **fait défiler** la page, suit un **nouvel onglet**, **joint un fichier** et **glisse-dépose**. Il teste avec **Chromium, Firefox ou WebKit**, et sur un **téléphone émulé**. Avec la **vision**, le modèle voit aussi l'écran, données personnelles cachées. |
+| **Industrialiser** | Chaque exécution génère un test **pytest-playwright** (éléments désignés comme le recommande Playwright, par leur rôle et leur nom), un test **Robot Framework** (SeleniumLibrary), un **scénario Gherkin** exécutable et, si la page appelle son API, une **collection Postman** que **Newman** rejoue. Une **donnée unique** à chaque exécution (`{unique}`) et une **session réutilisée** évitent de recréer un compte ou de se reconnecter. Un parcours réussi est **mémorisé** et rejoué sans IA ; si le site change, l'IA répare le parcours (**auto-réparation**). Les cas de test s'importent dans **Squash TM**. |
 | **Analyser** | Quand un test échoue, il rédige la **fiche d'anomalie** (étapes pour reproduire, résultat obtenu et attendu, capture), avec un diagnostic de l'IA présenté comme un avis à confirmer. Sur une erreur technique, le diagnostic s'appuie sur la **documentation officielle** de Playwright, liens à l'appui. |
-| **Piloter** | **Alfred**, une interface vocale, commente la mission en direct et répond aux questions : « pourquoi le dernier test a échoué ? », « refais le test de connexion sur le site de recette », « comment gère-t-on une iframe avec Robot Framework ? » (réponse tirée de la documentation officielle, avec le lien). |
-| **Se mesurer** | Une **campagne terrain** de 20 cas sur cinq sites d'entraînement, avec un verdict attendu pour chacun, et un **bilan** qui compte les verdicts justes, les faux PASS, les faux FAIL, les appels au modèle et la durée. |
+| **Piloter** | **Alfred**, une interface vocale, commente la mission en direct et répond aux questions : « pourquoi le dernier test a échoué ? », « refais le test de connexion sur le site de recette », « relance les tests en échec », « comment gère-t-on une iframe avec Robot Framework ? » (réponse tirée de la documentation officielle, avec le lien). |
+| **Se mesurer** | Une **campagne terrain** de 20 cas sur cinq sites d'entraînement, avec un verdict attendu pour chacun, lancée en **une commande** qui reprend où elle s'était arrêtée quand le quota du jour est épuisé, et un **bilan** qui compte les verdicts justes, les faux PASS, les faux FAIL, les appels au modèle et la durée. |
 
 L'IA propose, le programme vérifie : le verdict vient toujours des vérifications réelles, jamais de l'avis du modèle (voir [Les garde-fous](#les-garde-fous)).
 
@@ -29,12 +29,13 @@ flowchart LR
         US --> CT[Cas de test]
     end
     CT --> A[Agent]
+    CT -. fichier Excel .-> SQ[Import dans Squash TM]
     MEM[(Mémoire des parcours)] -. parcours connu, sans IA .-> A
     A -- état de la page --> M[Modèle IA : Gemini ou Claude]
     M -- action en JSON --> A
     A -- clic, saisie, vérification --> N[Navigateur Playwright]
     N -- nouvelle page --> A
-    A --> S[Tests pytest, Robot Framework et Gherkin]
+    A --> S[Tests pytest, Robot Framework, Gherkin et collection Postman]
     A --> R[Rapport, captures, resultat.json]
     A -- échec --> F[Fiche d'anomalie et diagnostic]
     AL[Alfred : voix et conversation] -.-> A
@@ -42,9 +43,9 @@ flowchart LR
     DOC -. extraits cités .-> AL
 ```
 
-À l'ouverture de la page, un bandeau de cookies qui la couvre est accepté par le programme, sans IA (voir [Le bandeau de cookies](#le-bandeau-de-cookies)). Puis, à chaque tour de l'agent :
+À l'ouverture de la page, les publicités sont bloquées et un bandeau de cookies qui la couvre est accepté par le programme, sans IA (voir [Le bandeau de cookies et les publicités](#le-bandeau-de-cookies-et-les-publicités)). Puis, à chaque tour de l'agent :
 
-1. **Observer** : l'agent liste les éléments visibles de la page (champs, boutons, liens, listes, cases à cocher) et les numérote. Il regarde aussi dans les cadres (iframes) et les composants web (Shadow DOM), et repère les éléments cliquables sans rôle standard, comme les options d'une liste déroulante faite de div. Un champ sans attribut est nommé par le libellé posé à côté de lui.
+1. **Observer** : l'agent liste les éléments visibles de la page (champs, boutons, liens, listes, cases à cocher) et les numérote. Il regarde aussi dans les cadres (iframes) et les composants web (Shadow DOM), et repère les éléments cliquables sans rôle standard, comme les options d'une liste déroulante faite de div. Un champ sans attribut est nommé par le libellé posé à côté de lui. Au-delà de 80 éléments, ceux qui sont à l'écran passent d'abord, et le modèle sait combien d'autres sont plus loin.
 2. **Décider** : il envoie au modèle le cas de test, l'historique et cette liste, données personnelles masquées. Le modèle répond par une seule action en JSON, par exemple `{"action": "fill", "args": {"ref": 1, "text": "standard_user"}}`.
 3. **Agir** : l'agent valide la réponse, exécute l'action avec Playwright et prend une capture.
 4. On recommence jusqu'à ce que le modèle termine le test.
@@ -60,15 +61,16 @@ Une IA peut se tromper. Le programme ne lui fait pas confiance aveuglément :
 - **Mémoire prudente** : seuls les parcours réussis sont mémorisés, et un élément n'est rejoué que s'il est retrouvé à l'identique. Au moindre doute, c'est le modèle qui cherche.
 - **Diagnostic présenté comme un avis** : la fiche d'anomalie sépare les faits (étapes, résultats, capture) de l'avis de l'IA, à confirmer par un testeur.
 - **Quotas respectés** : quand l'API signale une limite par minute, l'agent patiente le temps qu'elle indique, et Alfred l'annonce. Un quota du jour épuisé arrête la mission, avec l'heure de renouvellement.
-- **Clés protégées** : les clés d'API restent dans un fichier `.env`, exclu de Git, comme le dossier `memoire/`.
-- **Mots de passe jamais envoyés au modèle** : un mot de passe du cas de test est remplacé par le repère « [mot de passe] » dans tout ce qui part au modèle. Le modèle saisit ce repère, et le programme tape le vrai mot de passe à sa place. Le rapport, la fiche d'anomalie et la mémoire ne gardent que le repère. Les tests générés lisent le mot de passe dans le fichier `.env`, où l'agent le range (`MOT_DE_PASSE_SAUCEDEMO_COM`) : il n'est écrit dans aucun fichier produit.
+- **Clés protégées** : les clés d'API restent dans un fichier `.env`, exclu de Git, comme les dossiers `memoire/` et `sessions/` (cookies de connexion du compte de test).
+- **Mots de passe jamais envoyés au modèle** : un mot de passe du cas de test est remplacé par le repère « [mot de passe] » dans tout ce qui part au modèle. Le modèle saisit ce repère, et le programme tape le vrai mot de passe à sa place. Le rapport, la fiche d'anomalie et la mémoire ne gardent que le repère. Les tests générés lisent le mot de passe dans le fichier `.env`, où l'agent le range (`MOT_DE_PASSE_SAUCEDEMO_COM`) : il n'est écrit dans aucun fichier produit. Un mot de passe que la page affiche elle-même (certains sites d'entraînement le font) est caché de la même façon, et la collection Postman comme l'import Squash TM ne gardent que des repères.
 - **Fichiers joints contrôlés** : l'agent ne joint qu'un fichier du dossier `donnees_de_test/`, désigné par son nom, sans chemin. Une réponse du modèle qui donnerait un chemin (`../.env`) est refusée.
-- **Données personnelles masquées** : avant chaque envoi au modèle, les adresses e-mail, numéros de téléphone, de carte bancaire et IBAN affichés par la page sont remplacés par un repère (« [e-mail masqué] »), sauf ceux que le cas de test donne lui-même. Les noms et les adresses postales aussi : la valeur d'un champ Nom, Prénom, Adresse, Code postal ou Ville, une adresse comme « 12 rue de la Paix, 75002 Paris », et le nom qui suit « Bonjour » ou « Logged in as ». Un numéro de carte n'est masqué que s'il passe le contrôle de Luhn, un IBAN que si sa clé est juste : un numéro de commande reste lisible.
+- **Données personnelles masquées** : avant chaque envoi au modèle, les adresses e-mail, numéros de téléphone, de carte bancaire et IBAN affichés par la page sont remplacés par un repère (« [e-mail masqué] »), sauf ceux que le cas de test donne lui-même. Les noms et les adresses postales aussi : la valeur d'un champ Nom, Prénom, Adresse, Code postal ou Ville, une adresse comme « 12 rue de la Paix, 75002 Paris », et le nom qui suit « Bonjour » ou « Logged in as ». Un numéro de carte n'est masqué que s'il passe le contrôle de Luhn, un IBAN que si sa clé est juste : un numéro de commande reste lisible. Avec la vision, les mêmes données sont cachées sous un rectangle noir sur la capture d'écran envoyée au modèle.
 - **Bandeau de cookies accepté sans IA** : seul le bouton qui accepte un bandeau de cookies est cliqué par le programme. Un bouton « Accepter » hors d'un tel bandeau ne l'est jamais, et un cas de test qui porte sur le bandeau (le refuser, vérifier qu'il s'affiche) le laisse au modèle.
+- **Publicités bloquées** : les requêtes des régies publicitaires (Google, Amazon, Criteo, Taboola...) sont bloquées, pour l'agent comme pour les tests générés. Une publicité plein écran couvrirait la page sans rien dire du site testé. Le rapport compte les requêtes bloquées.
 - **Fenêtres JavaScript tracées** : une fenêtre d'alerte ou de confirmation reçoit OK, sauf consigne contraire du modèle (action `dialog`), et son message est noté dans le rapport. Les tests générés lui font la même réponse, après avoir vérifié son message.
 - **Vision signalée** : une vérification faite à l'œil par l'IA sur une capture (`check_visual`) est marquée comme un avis dans le rapport, n'est pas rejouée par les tests générés (elle y figure comme « à automatiser ») et un parcours qui en dépend n'est pas mémorisé.
 - **Conversation contrôlée** : quand on parle librement à Alfred, le modèle ne peut que proposer une action d'une liste fermée (lancer, afficher, arrêter, ouvrir un fichier, rédiger un cas, analyser un site). Le programme vérifie que le cas existe et que l'adresse est valide, et la réponse lue à voix haute ne contient jamais un mot de passe.
-- **Sources contrôlées** : pour une question sur Playwright, Selenium ou Robot Framework, ou pour une erreur technique, le programme lit lui-même des pages officielles, choisies dans une liste fermée, et n'envoie au modèle que des extraits numérotés. Les liens affichés sont ceux des extraits que le modèle a cités : il ne peut ni inventer une source, ni citer une page qu'il n'a pas reçue, et une adresse écrite dans sa réponse est retirée.
+- **Sources contrôlées** : pour une question sur Playwright, Selenium, Robot Framework, Postman, Appium ou pytest-bdd, ou pour une erreur technique, le programme lit lui-même des pages officielles, choisies dans une liste fermée, et n'envoie au modèle que des extraits numérotés. Les liens affichés sont ceux des extraits que le modèle a cités : il ne peut ni inventer une source, ni citer une page qu'il n'a pas reçue, et une adresse écrite dans sa réponse est retirée.
 - **Propositions relues** : les user stories et les cas proposés par l'IA sont contrôlés (format, mots-clés Gherkin, étapes, résultats attendus), rien n'est enregistré sans l'accord du testeur, et le mot de passe du compte de test n'est jamais envoyé au modèle.
 
 ## Installation (Mac ou Linux)
@@ -86,6 +88,14 @@ cp .env.example .env
 ```
 
 Ouvre ensuite le fichier `.env` et colle ta clé Gemini après `GEMINI_API_KEY=`. Elle se crée gratuitement sur [Google AI Studio](https://aistudio.google.com).
+
+Pour tester aussi avec Firefox et WebKit (le moteur de Safari) :
+
+```bash
+python -m playwright install firefox webkit
+```
+
+Pour rejouer les collections Postman avec Newman, il faut [Node.js](https://nodejs.org) : `npx` télécharge Newman à la première utilisation.
 
 ## Premier essai, sans clé d'API
 
@@ -131,6 +141,24 @@ python -m agent cas_de_test/demo/CT-93_demo_clavier_souris.md --provider scripte
 python -m agent cas_de_test/demo/CT-94_demo_onglets_fichiers.md --provider scripted --scenario cas_de_test/demo/scenario_CT-94.json --headed
 ```
 
+Quatre démos montrent l'industrialisation. `CT-95` crée un compte avec une adresse e-mail nouvelle à chaque exécution (`{unique}`) et enregistre la session ; `CT-96` reprend cette session et commence déjà connecté (lance-le après CT-95) ; `CT-97` affiche un catalogue chargé par l'API de la page, dont l'agent tire une collection Postman ; `CT-98` s'ouvre sous un bandeau de cookies posé dans un cadre, comme ceux de Sourcepoint, et appelle une régie publicitaire, bloquée :
+
+```bash
+python -m agent cas_de_test/demo/CT-95_demo_compte_adresse_unique.md --provider scripted --scenario cas_de_test/demo/scenario_CT-95.json --headed
+```
+
+```bash
+python -m agent cas_de_test/demo/CT-96_demo_espace_client_sans_connexion.md --provider scripted --scenario cas_de_test/demo/scenario_CT-96.json --headed
+```
+
+```bash
+python -m agent cas_de_test/demo/CT-97_demo_catalogue_api.md --provider scripted --scenario cas_de_test/demo/scenario_CT-97.json --headed
+```
+
+```bash
+python -m agent cas_de_test/demo/CT-98_demo_offres_cadre_tiers.md --provider scripted --scenario cas_de_test/demo/scenario_CT-98.json --headed
+```
+
 Exemples de résultats : [`docs/exemple-demo`](docs/exemple-demo/rapport.md), [`docs/exemple-tri-commande`](docs/exemple-tri-commande/rapport.md) et [`docs/exemple-atelier`](docs/exemple-atelier/rapport.md).
 
 Encore plus simple : `python -m alfred` ouvre l'interface Alfred, qui sert elle-même le site de démo (un seul terminal suffit). Sur Mac, un double-clic sur `Alfred.command` fait la même chose.
@@ -150,6 +178,7 @@ python -m agent cas_de_test/CT-01_connexion_valide.md --headed --pause 4
 - `--url` lance le cas sur une autre adresse (recette, préproduction, adresse IP) sans modifier son fichier, par exemple `--url http://192.168.1.20:8080/`.
 - `--sans-memoire` ignore le parcours mémorisé : tout le test passe par le modèle.
 - `--vision` envoie aussi la capture d'écran de la page au modèle (voir [La vision](#la-vision)).
+- `--navigateur firefox` ou `--navigateur webkit` change de navigateur, et `--appareil "iPhone 15"` émule un téléphone ou une tablette (voir [Navigateurs et appareils](#navigateurs-et-appareils)).
 
 Un fichier Gherkin se lance de la même façon : chaque scénario du `.feature` est exécuté comme un cas de test, l'un après l'autre (`--numero 2` pour n'en lancer qu'un).
 
@@ -167,7 +196,7 @@ Alfred est une interface web locale. On choisit un cas de test (ou on l'écrit),
 python -m alfred
 ```
 
-Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du projet. La page s'ouvre toute seule sur http://127.0.0.1:8765. Alfred sert aussi le site de démo : les cas de démo (CT-00 et CT-90 à CT-94) fonctionnent avec le moteur « Démo sans IA », sans clé d'API.
+Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du projet. La page s'ouvre toute seule sur http://127.0.0.1:8765. Alfred sert aussi le site de démo : les cas de démo (CT-00 et CT-90 à CT-98) fonctionnent avec le moteur « Démo sans IA », sans clé d'API.
 
 - **Le cadran** : l'anneau extérieur compte les actions (20 au plus), en vert les vérifications réussies et en rouge les échecs. L'anneau intérieur montre la phase en cours : observer, réfléchir, agir.
 - **La voix** : Alfred annonce ce qu'il fait, puis le verdict. Les mots de passe ne sont jamais lus ni affichés.
@@ -178,6 +207,8 @@ Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du proj
 - **Écrire un cas de test** directement dans la page, le lancer, puis l'enregistrer dans `cas_de_test/`.
 - **Proposer des user stories et des tests** : Alfred analyse un site et propose des user stories (critères en Gherkin), ou rédige les cas de test d'une user story, tapée ou dictée. Voir [Proposer des user stories et des cas de test](#proposer-des-user-stories-et-des-cas-de-test).
 - **La vision** : la case « Vision » envoie aussi la capture de la page au modèle.
+- **Le navigateur et l'appareil** : deux listes choisissent le navigateur (Chromium, Firefox, WebKit) et le téléphone ou la tablette à émuler. Alfred s'en souvient d'une visite à l'autre, et une phrase libre peut les choisir : « lance le cas 3 sur Firefox », « lance-le sur un iPhone ».
+- **Relancer les tests en échec** : « relance les tests en échec » relance, l'un après l'autre, chaque cas dont la dernière exécution n'a pas réussi, puis Alfred annonce le bilan de la série. « Arrête » interrompt la série.
 - **La reconnaissance du maître** : au démarrage, Alfred se présente et salue son maître à voix haute, avec la voix du Mac. Au premier lancement sur un ordinateur, il demande ton prénom et l'enregistre dans le `.env` de cet ordinateur (`ALFRED_MAITRE`) : chaque installation connaît son maître. `--silencieux` coupe la salutation, `ALFRED_VOIX` choisit la voix.
 - **Réglages** : changer le prénom, et la voix utilisée dans la page.
 
@@ -185,8 +216,8 @@ Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du proj
 
 Alfred comprend deux sortes de phrases :
 
-- **Les commandes simples**, comprises dans la page, sans IA et sans quota : « lance la démo », « lance le cas 2 », « vas-y », « arrête », « ouvre le rapport », « ouvre la fiche d'anomalie ». « Qui es-tu ? » et « présente-toi » aussi : Alfred se présente, même sans clé d'API.
-- **Les questions sur un outil de test** : « comment gère-t-on une iframe avec Robot Framework ? ». Alfred répond à partir de la documentation officielle, et le lien s'affiche sous sa réponse. Voir [Questions sur Playwright, Selenium et Robot Framework](#questions-sur-playwright-selenium-et-robot-framework).
+- **Les commandes simples**, comprises dans la page, sans IA et sans quota : « lance la démo », « lance le cas 2 », « relance les tests en échec », « vas-y », « arrête », « ouvre le rapport », « ouvre la fiche d'anomalie ». « Qui es-tu ? » et « présente-toi » aussi : Alfred se présente, même sans clé d'API.
+- **Les questions sur un outil de test** : « comment gère-t-on une iframe avec Robot Framework ? ». Alfred répond à partir de la documentation officielle, et le lien s'affiche sous sa réponse. Voir [Questions sur les outils de test](#questions-sur-les-outils-de-test).
 - **Tout le reste** : une question ou une demande libre part au modèle (Gemini ou Claude), avec le contexte utile : la liste des cas de test, le cas affiché, la mission en cours et les derniers résultats (statut, vérifications en échec, diagnostic de l'IA). Une requête par phrase.
 
 Quelques exemples :
@@ -197,6 +228,7 @@ Quelques exemples :
 | « Comment fonctionnes-tu ? », « Quelles sont tes limites ? » | il répond à partir de sa fiche : version, auteur, fonctionnement de l'agent, tests générés et limites |
 | « Quels tests ont échoué aujourd'hui ? » | il les cite, à partir des résultats du jour |
 | « Refais le test de connexion sur le site de recette » | il choisit le bon cas, change l'adresse et lance la mission |
+| « Lance le test du panier sur un iPhone avec Safari » | il choisit le cas, WebKit et l'iPhone, puis lance la mission |
 | « Vérifie qu'on ne peut pas commander sans code postal » | il rédige le cas au format CT, l'affiche, et le lance quand tu dis « vas-y » |
 | « Analyse saucedemo.com et propose des user stories » | il ouvre les propositions et lance l'analyse |
 | « Montre-moi la fiche d'anomalie de CT-14 » | il l'ouvre, même si le test a tourné un autre jour |
@@ -204,11 +236,11 @@ Quelques exemples :
 
 Alfred garde les derniers échanges en tête : on peut enchaîner (« et celui d'avant ? »). Sans clé d'API, seules les commandes simples fonctionnent, et Alfred le dit ; à une question sur un outil, il donne quand même les liens de la documentation officielle. Les résultats viennent du fichier `resultat.json` que chaque exécution écrit dans son dossier de rapport.
 
-### Questions sur Playwright, Selenium et Robot Framework
+### Questions sur les outils de test
 
 Une question qui cite un outil (« comment… », « quel mot-clé… », « pourquoi j'ai une StaleElementReferenceException… ») ne part pas au modèle telle quelle :
 
-1. Le programme choisit au plus deux pages dans une liste fermée de pages officielles (playwright.dev, selenium.dev, robotframework.org), d'après les mots de la question. Les mots français trouvent leur équivalent anglais : « cadre » cherche aussi frame, « survoler » cherche hover. Si aucun mot ne désigne une page, il lit les références de l'outil, par exemple les mots-clés de SeleniumLibrary et de BuiltIn.
+1. Le programme choisit au plus deux pages dans une liste fermée de pages officielles (playwright.dev, selenium.dev, robotframework.org, learning.postman.com, appium.io, pytest-bdd.readthedocs.io), d'après les mots de la question. Les mots français trouvent leur équivalent anglais : « cadre » cherche aussi frame, « survoler » cherche hover. Si aucun mot ne désigne une page, il lit les références de l'outil, par exemple les mots-clés de SeleniumLibrary et de BuiltIn.
 2. Il lit ces pages et les découpe par titres. La documentation des mots-clés de Robot Framework est construite en JavaScript : le programme lit directement ses données, un mot-clé par partie.
 3. Il garde les quatre parties les plus proches de la question, avec le classement des moteurs de recherche (BM25) : un mot rare compte plus qu'un mot présent partout, et « Input Text » passe avant « Input Text Into Alert ».
 4. Le modèle reçoit ces extraits numérotés, répond à partir d'eux seulement et donne les numéros qui appuient sa réponse. Les liens affichés sous la réponse sont ceux de ces extraits, avec l'ancre de la partie (`SeleniumLibrary.html#Select%20Frame`).
@@ -269,6 +301,24 @@ Fonctionnalité: US-01 Connexion à la boutique
     Alors la page « Products » s'affiche
 ```
 
+## Données uniques et sessions
+
+**Une donnée nouvelle à chaque exécution.** Un compte, une adresse e-mail ou un nom qui doit être nouveau s'écrit avec `{unique}` :
+
+```markdown
+1. Saisir « alfred.{unique}@exemple.fr » dans le champ E-mail
+```
+
+L'agent remplace `{unique}` par la date et l'heure de l'exécution (`1024094512` : mois, jour, heure, minutes et secondes), la même valeur partout dans le cas. Le rapport l'indique, et la mémoire garde `{unique}`. Les tests générés créent leur propre valeur à chaque lancement : `datetime.now()` dans le test pytest, le mot-clé « Créer la valeur unique » dans les tests Robot Framework, `{{unique}}` dans la collection Postman.
+
+**Commencer déjà connecté.** Un cas qui réussit avec la ligne « Enregistrer la session : demo », sous son URL, garde les cookies et le stockage local du navigateur dans `sessions/demo.json` (exclu de Git). Un cas avec la ligne « Session : demo » démarre avec cette session, sans refaire la connexion. Si elle n'existe pas encore, il s'arrête (BLOQUÉ) et dit quel cas lancer d'abord.
+
+```markdown
+Session : demo
+```
+
+Les tests générés font de même : `storage_state` dans le test pytest, les mots-clés « Reprendre la session » et « Enregistrer la session » dans les tests Robot Framework. Un test qui reprend une session absente est passé (skip), avec un message qui dit de lancer d'abord le test qui l'enregistre.
+
 ## Proposer des user stories et des cas de test
 
 L'agent peut aussi préparer les tests. Dans Alfred, le bouton « Proposer des user stories et des tests » ouvre deux parcours :
@@ -299,7 +349,21 @@ Avec `--vision` (ou `AGENT_VISION=1` dans `.env`, ou la case « Vision » d'Alfr
 
 Une telle vérification reste l'avis du modèle sur une capture, pas une mesure : le rapport l'indique, les tests générés la gardent en commentaire « à automatiser », et un parcours qui en dépend n'est pas mémorisé. Le cas **CT-16** en montre l'intérêt : avec l'utilisateur `problem_user`, SauceDemo affiche la même photo pour tous les produits, un défaut invisible dans le texte de la page.
 
+Sur la capture, les données personnelles que le texte envoyé au modèle masque (e-mails, téléphones, cartes, IBAN, noms et adresses, mots de passe du cas) sont cachées sous un rectangle noir, sauf celles que le cas de test donne lui-même.
+
 La vision coûte un peu plus cher : chaque requête envoie une image (en JPEG, de faible poids).
+
+## Navigateurs et appareils
+
+Par défaut, l'agent teste avec Chromium, dans une fenêtre de 1280 × 800. `--navigateur firefox` ou `--navigateur webkit` (le moteur de Safari) change de navigateur, et `--appareil` émule un téléphone ou une tablette : taille d'écran, densité de pixels, écran tactile et navigateur mobile, d'après la liste des appareils de Playwright (« iPhone 15 », « Pixel 7 », « Galaxy S24 », « iPad Mini »...). `AGENT_NAVIGATEUR` et `AGENT_APPAREIL` dans `.env` changent les valeurs par défaut.
+
+```bash
+python -m agent cas_de_test/demo/CT-00_demo_locale.md --provider scripted --scenario cas_de_test/demo/scenario_CT-00.json --navigateur webkit --appareil "iPhone 15" --headed
+```
+
+Firefox n'émule pas de téléphone (Playwright ne le permet pas) : un appareil se teste avec Chromium ou WebKit.
+
+Les tests générés gardent ce choix : le test pytest donne sa commande (`pytest test_....py --browser webkit`) et règle l'appareil dans la fixture `browser_context_args` ; le test Robot Framework émule le téléphone avec Chrome (`mobileEmulation`).
 
 ## La campagne SauceDemo
 
@@ -342,11 +406,13 @@ Les pièges visaient les limites de l'agent en version 0.4 : fenêtres JavaScrip
 
 Le verdict attendu de chaque cas (PASS, FAIL ou BLOQUÉ) et sa raison sont dans un fichier à part, [`cas_de_test/terrain/campagne.md`](cas_de_test/terrain/campagne.md), jamais dans le cas lui-même : le modèle lit tout le texte d'un cas, il ne doit pas connaître la réponse. BLOQUÉ est attendu quand une limite connue empêche l'agent de faire une étape : le bon réflexe est alors de le dire, plutôt que d'accuser le site ou d'annoncer un succès.
 
-La campagne se lance un site par jour, un cas après l'autre, sans la mémoire des parcours (`--sans-memoire`) pour que chaque cas mesure vraiment le modèle. Les commandes de chaque journée sont dans le fichier de campagne, par exemple :
+La campagne se lance en une commande, un cas après l'autre, sans la mémoire des parcours pour que chaque cas mesure vraiment le modèle, et avec la vision pour CT-30 :
 
 ```bash
-python -m agent cas_de_test/terrain/parabank/CT-21_connexion_compte_demo.md --headed --pause 4 --sans-memoire
+python -m agent.campagne --headed --pause 4
 ```
+
+Si le quota du jour tombe en cours de route, la campagne s'arrête proprement (code de sortie 4). La même commande, relancée plus tard, reprend au cas interrompu et passe ceux qui ont déjà un verdict ; `--attendre` patiente jusqu'au renouvellement du quota, puis continue seule. `--site parabank` ne lance qu'un site, `--nouvelle` repart de zéro. À la fin, le bilan est écrit. Le fichier de campagne donne aussi la commande de chaque cas, pour en relancer un seul.
 
 ### Le bilan de la campagne
 
@@ -385,6 +451,7 @@ Chaque exécution crée un dossier `rapports/<date>_<cas_de_test>/` contenant :
 | `<cas_de_test>.robot` | le test Robot Framework qui rejoue le test avec Selenium |
 | `<cas_de_test>.feature` | le scénario Gherkin en français |
 | `<cas_de_test>_bdd.robot` | le même scénario Gherkin, exécutable avec Robot Framework |
+| `<cas_de_test>.postman_collection.json` | la collection Postman des appels d'API de la page, avec son environnement (`.postman_environment.json`), seulement si la page en a fait |
 | `anomalie.md` | la fiche d'anomalie, seulement si le test échoue ou reste bloqué |
 | `resultat.json` | le même bilan, lisible par un programme : statut, vérifications en échec, diagnostic, fichiers produits |
 
@@ -393,6 +460,8 @@ Pour rejouer le script pytest :
 ```bash
 pytest rapports/<dossier>/test_<cas_de_test>.py
 ```
+
+Le test désigne les éléments comme le recommande Playwright : par leur rôle et leur nom (`get_by_role('button', name='Login')`), leur libellé ou leur texte d'aide, quand ce localisateur trouve exactement l'élément pendant l'exécution de l'agent ; sinon, il garde le sélecteur CSS. `--browser firefox` ou `--browser webkit` le rejoue avec un autre navigateur.
 
 ### Rejouer avec Robot Framework
 
@@ -427,7 +496,7 @@ Fonctionnalité: CT-90 Démo locale : tri, panier et commande
   Scénario: CT-90 Démo locale : tri, panier et commande
     Étant donné que je suis sur la page "http://localhost:8000/index.html"
     Quand je saisis "standard_user" dans le champ "Identifiant"
-    Et je saisis "secret_sauce" dans le champ "Mot de passe"
+    Et je saisis le mot de passe "MOT_DE_PASSE_LOCALHOST" dans le champ "Mot de passe"
     Et je clique sur le bouton "Connexion"
     Alors la page affiche 3 fois "Ajouter au panier"
     Quand je choisis "Prix croissant" dans la liste "Trier"
@@ -442,7 +511,7 @@ Fonctionnalité: CT-90 Démo locale : tri, panier et commande
     Et le champ "Code postal" est vide
 ```
 
-Robot Framework comprend ces mots-clés en français : le fichier `_bdd.robot` reprend le même scénario, et chaque phrase y devient un mot-clé qui rejoue l'étape avec SeleniumLibrary. Le scénario Gherkin est donc exécutable :
+Le mot de passe n'y est jamais écrit : la phrase nomme la variable du fichier `.env` qui le contient. Robot Framework comprend ces mots-clés en français : le fichier `_bdd.robot` reprend le même scénario, et chaque phrase y devient un mot-clé qui rejoue l'étape avec SeleniumLibrary. Le scénario Gherkin est donc exécutable :
 
 ```bash
 robot rapports/<dossier>/<cas_de_test>_bdd.robot
@@ -450,15 +519,34 @@ robot rapports/<dossier>/<cas_de_test>_bdd.robot
 
 Exemple complet : [`docs/exemple-tri-commande`](docs/exemple-tri-commande/ct_90_demo_locale_tri_panier_et_commande.feature).
 
-## Le bandeau de cookies
+### La collection Postman
+
+Pendant le test, l'agent note les appels d'API de la page : les requêtes fetch et XMLHttpRequest, sans les outils de mesure d'audience ni les publicités. S'il y en a, il écrit une collection Postman et son environnement : une requête par appel, dans l'ordre du test, avec ses tests (le statut de la réponse, et pour une réponse JSON, ses champs).
+
+- L'adresse du site devient la variable `{{baseUrl}}` de l'environnement : la collection se rejoue sur la recette en changeant une valeur.
+- Rien de secret n'y est écrit : un mot de passe devient `{{motDePasse}}` et un jeton d'authentification `{{jeton}}`, deux variables secrètes laissées vides dans l'environnement, à remplir dans Postman. Les cookies ne sont pas repris.
+- `{unique}` devient `{{unique}}`, recalculé à chaque lancement de la collection.
+
+Dans Postman : Import, puis le fichier de la collection et celui de l'environnement. En ligne de commande, avec Newman :
+
+```bash
+npx newman run rapports/<dossier>/<cas_de_test>.postman_collection.json -e rapports/<dossier>/<cas_de_test>.postman_environment.json
+```
+
+Le rapport donne la commande exacte et les variables secrètes à remplir.
+
+## Le bandeau de cookies et les publicités
 
 Sur un site européen, un bandeau de consentement (RGPD) couvre souvent la page à la première visite et bloque les clics tant qu'on n'y a pas répondu. Le testeur l'accepte et passe à la suite : l'agent fait de même, sans appel au modèle.
 
 - **Avant que l'agent ne regarde la page**, le programme cherche le bouton qui accepte. Il reconnaît les outils de consentement courants (Google, OneTrust, Didomi, Axeptio, Cookiebot, Quantcast, tarteaucitron, Usercentrics...) et, à défaut, un bandeau fait par le site : un bloc fixe ou une fenêtre qui parle de cookies, avec un bouton « Tout accepter », « J'accepte », « Accept all »... Un bouton « Accepter » ailleurs dans la page n'est jamais cliqué.
+- **Un bandeau dans un cadre** (iframe), comme ceux de Sourcepoint ou de TrustArc : le programme cherche aussi le bouton dans les cadres de consentement, reconnus à leur id, leur nom, leur titre ou leur adresse.
 - **Le bandeau arrive souvent après la page** : quand la page charge un outil de consentement, le programme l'attend 5 secondes au plus. Sans outil de consentement, il ne fait que regarder, sans rien attendre. Il regarde de nouveau avant chaque action, pour un bandeau qui arriverait plus tard.
 - **Dans le rapport**, l'acceptation est une étape « cookies », marquée « Sans IA ». Elle ne compte pas dans les 20 actions du modèle, et la mémoire ne la garde pas : le programme la refait à chaque exécution.
-- **Les tests générés** acceptent le bandeau s'il s'affiche : `page.add_locator_handler` dans le test pytest (Playwright clique dès que le bandeau couvre la page), le mot-clé « Accepter le bandeau de cookies » dans les tests Robot Framework, et la phrase « Et j'accepte le bandeau de cookies » dans le scénario Gherkin.
+- **Les tests générés** acceptent le bandeau s'il s'affiche : `page.add_locator_handler` dans le test pytest (Playwright clique dès que le bandeau couvre la page), le mot-clé « Accepter le bandeau de cookies » dans les tests Robot Framework, et la phrase « Et j'accepte le bandeau de cookies » dans le scénario Gherkin. Pour un bandeau dans un cadre, ils entrent d'abord dans le cadre : `page.frame_locator(...)` dans le test pytest, le mot-clé « Accepter le bandeau de cookies du cadre » dans les tests Robot Framework.
 - **Un cas de test qui porte sur le bandeau** garde la main : son titre ou ses résultats attendus parlent du bandeau ou du consentement, ou il demande de refuser ou de personnaliser les cookies. Le bandeau est alors un élément comme un autre, que le modèle manie selon les étapes. Une étape qui demande seulement de l'accepter, comme dans les cas d'Automation Exercise, est faite par le programme.
+
+Les publicités, elles, sont bloquées dès l'ouverture du navigateur : les requêtes des régies publicitaires (Google, Amazon, Criteo, Taboola, Outbrain...) n'aboutissent pas. Une publicité plein écran, comme celle que Google affiche après un clic sur un lien (l'adresse finit alors par #google_vignette), ne couvre donc jamais la page. Le rapport compte les requêtes bloquées, et les tests générés bloquent les mêmes adresses : `page.context.route` dans le test pytest, une commande de Chrome dans les tests Robot Framework (Chrome seulement).
 
 ## La mémoire des parcours
 
@@ -484,19 +572,34 @@ Avec Gemini ou Claude, le modèle reçoit ensuite les faits (cas de test, histor
 
 Quand l'échec vient d'une erreur technique de Playwright (« Timeout 5000ms exceeded », « strict mode violation », « Input of type "submit" cannot be filled »), le programme lit aussi les pages de la documentation officielle qui en parlent et joint au diagnostic les extraits les plus proches du message. Le modèle s'appuie dessus et cite ceux qui lui ont servi : la fiche et le rapport donnent leurs liens, sous « Dans la documentation officielle ». Une vérification en échec n'est pas une erreur technique : elle ne déclenche aucune lecture.
 
+## Import dans Squash TM
+
+```bash
+python -m agent.squash
+```
+
+La commande prépare l'import des cas de test dans Squash TM : un fichier Excel, `rapports/import_squash_tm.xlsx`, au format du modèle d'import (onglets `TEST_CASES` et `STEPS`). Dans Squash TM : espace Cas de test, Importer, format Excel.
+
+- Un cas Markdown devient un cas de test classique : sa référence est son code (CT-01), ses étapes deviennent des pas de test, ses résultats attendus le résultat attendu du dernier pas, ses préconditions le prérequis.
+- Un fichier Gherkin devient un cas de test Gherkin, avec son script ; sa priorité (`@priorite-haute`) donne l'importance.
+- Les dossiers de `cas_de_test/` deviennent des dossiers de la bibliothèque, sous le projet : `--projet "Recette boutique"` donne son nom (le projet doit exister dans Squash TM). Un dossier précis s'exporte seul : `python -m agent.squash cas_de_test/terrain`.
+- Les mots de passe ne sont pas recopiés : « [mot de passe] » les remplace, et le prérequis indique où les trouver.
+
 ## Tests du projet
 
-Les 437 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
+Les 512 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
 
 ```bash
 pytest
 ```
 
-Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses du modèle, la construction des requêtes Gemini et Claude (avec ou sans image), l'observation de la page (cadres, composants web, listes maison, libellés posés à côté des champs, cadres de publicité ignorés), les fenêtres JavaScript, l'attente d'un texte, le masquage des données personnelles, les familles de vérifications (dont l'attente d'une page qui change encore, les motifs et l'avis visuel), les règles de statut (FAIL forcé, PASS sans vérification refusé, arrêt après erreurs), la mémoire (rejeu sans appel au modèle, auto-réparation, cas modifié, autre site), la fiche d'anomalie, les mots de passe (repérés dans le cas, remplacés par un repère pour le modèle, tapés par le programme, absents du rapport, de la mémoire et des tests générés, rangés dans le `.env`), le masquage des noms et adresses, les actions au clavier et à la souris (touches, survol, double-clic, clic droit, défilement, nouvel onglet suivi puis quitté, fichier joint et chemin refusé, glisser-déposer, composant fermé ouvert par script, rejeu depuis la mémoire), le bandeau de cookies (outils connus, bandeau fait par le site, bouton « Accepter » hors bandeau jamais cliqué, attente d'un bandeau tardif, cas qui porte sur le bandeau, analyse d'un site), la recherche dans la documentation officielle (choix des pages, lecture des pages Docusaurus, docutils et libdoc, classement des parties, sources citées contrôlées, page injoignable, quota épuisé), les tests générés, l'analyse d'un site (connexion avec un compte de test, liens risqués jamais suivis, mot de passe jamais transmis), le contrôle des user stories et des cas proposés, et le bilan de campagne (lecture du fichier de campagne, choix de la dernière exécution, classement des écarts, exécution coupée par le quota, période et site, rendu). Ils vérifient aussi la campagne terrain elle-même : vingt cas, quatre par site, un fichier par cas sur la bonne adresse, et aucun verdict ni piège annoncé dans le texte d'un cas. Le script pytest est rejoué tel quel. Les fichiers `.robot`, classique et Gherkin, sont exécutés par Robot Framework, avec un double de SeleniumLibrary piloté par Playwright (`tests/robot_double`) pour se passer de Chrome.
+Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses du modèle, la construction des requêtes Gemini et Claude (avec ou sans image), l'observation de la page (cadres, composants web, listes maison, libellés posés à côté des champs, cadres de publicité ignorés), les fenêtres JavaScript, l'attente d'un texte, le masquage des données personnelles, les familles de vérifications (dont l'attente d'une page qui change encore, les motifs et l'avis visuel), les règles de statut (FAIL forcé, PASS sans vérification refusé, arrêt après erreurs), la mémoire (rejeu sans appel au modèle, auto-réparation, cas modifié, autre site), la fiche d'anomalie, les mots de passe (repérés dans le cas, remplacés par un repère pour le modèle, tapés par le programme, absents du rapport, de la mémoire et des tests générés, rangés dans le `.env`), le masquage des noms et adresses, les actions au clavier et à la souris (touches, survol, double-clic, clic droit, défilement, nouvel onglet suivi puis quitté, fichier joint et chemin refusé, glisser-déposer, composant fermé ouvert par script, rejeu depuis la mémoire), le bandeau de cookies (outils connus, bandeau fait par le site, bouton « Accepter » hors bandeau jamais cliqué, attente d'un bandeau tardif, cas qui porte sur le bandeau, analyse d'un site), la recherche dans la documentation officielle (choix des pages, lecture des pages Docusaurus, docutils et libdoc, classement des parties, sources citées contrôlées, page injoignable, quota épuisé), les tests générés, l'analyse d'un site (connexion avec un compte de test, liens risqués jamais suivis, mot de passe jamais transmis), le contrôle des user stories et des cas proposés, le bilan de campagne (lecture du fichier de campagne, choix de la dernière exécution, classement des écarts, exécution coupée par le quota, période et site, rendu), la campagne en une commande (reprise après le quota, attente de son renouvellement), la donnée unique (remplacée pendant l'exécution, recréée par les tests générés, gardée comme `{unique}` dans la mémoire), les sessions (enregistrée, reprise, absente), les localisateurs recommandés par Playwright (vérifiés dans la page), Firefox, WebKit et l'iPhone émulé, la collection Postman (appels retenus, secrets en variables, rejeu), les publicités bloquées, le bandeau de cookies dans un cadre, les éléments à l'écran d'abord, la capture masquée de la vision (couleur des pixels lue dans la capture), la vérification « absent » dans les cadres et l'import Squash TM (relu avec openpyxl, sans mot de passe). Ils vérifient aussi la campagne terrain elle-même : vingt cas, quatre par site, un fichier par cas sur la bonne adresse, et aucun verdict ni piège annoncé dans le texte d'un cas. Le script pytest est rejoué tel quel. Les fichiers `.robot`, classique et Gherkin, sont exécutés par Robot Framework, avec un double de SeleniumLibrary piloté par Playwright (`tests/robot_double`) pour se passer de Chrome.
 
 Les tests d'Alfred vérifient l'API, le flux en direct, l'arrêt d'une mission, la mémoire, l'annonce du diagnostic, les propositions, la conversation libre (contexte envoyé au modèle, actions contrôlées, mot de passe jamais prononcé, réponses tirées de la documentation et liens affichés), les protections du serveur et la compréhension des commandes vocales, puis pilotent dans l'interface des missions complètes, une analyse de site et un cas de test dicté puis lancé sur « vas-y ».
 
-GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des six démos avec le vrai SeleniumLibrary et Chrome : cadre sélectionné avec `Select Frame`, composant web atteint par un localisateur `dom:`, fenêtre traitée par `Handle Alert`, bandeau de cookies accepté par « Accepter le bandeau de cookies », touches envoyées par `Press Keys`, survol par `Mouse Over`, nouvel onglet suivi par `Switch Window`, fichier joint par `Choose File`, glisser-déposer HTML5 envoyé en JavaScript (Selenium ne sait pas le faire à la souris) et composant fermé ouvert par une commande de Chrome. Si un test Robot échoue, son nom et son message s'affichent sur la page du run, lisibles sans être connecté à GitHub. Le double de SeleniumLibrary répond OK à toutes les fenêtres : la réponse Annuler et la saisie dans une fenêtre ne sont vérifiées qu'avec le vrai SeleniumLibrary.
+GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des dix démos avec le vrai SeleniumLibrary et Chrome : cadre sélectionné avec `Select Frame`, composant web atteint par un localisateur `dom:`, fenêtre traitée par `Handle Alert`, bandeau de cookies accepté par « Accepter le bandeau de cookies », touches envoyées par `Press Keys`, survol par `Mouse Over`, nouvel onglet suivi par `Switch Window`, fichier joint par `Choose File`, glisser-déposer HTML5 envoyé en JavaScript (Selenium ne sait pas le faire à la souris) composant fermé ouvert par une commande de Chrome, publicités bloquées par une autre, session reprise par ses cookies et bandeau d'un cadre accepté après `Select Frame`. Si un test Robot échoue, son nom et son message s'affichent sur la page du run, lisibles sans être connecté à GitHub. Le double de SeleniumLibrary répond OK à toutes les fenêtres : la réponse Annuler et la saisie dans une fenêtre ne sont vérifiées qu'avec le vrai SeleniumLibrary.
+
+Deux autres jobs complètent la vérification : la collection Postman de la démo CT-97 est rejouée avec Newman (les requêtes en échec s'affichent sur la page du run), et les démos sont lancées avec Firefox, WebKit et un iPhone émulé, avant de rejouer leurs tests pytest avec le même navigateur.
 
 ## Structure du code
 
@@ -510,23 +613,31 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 | `agent/browser.py` | observation de la page et exécution des actions et des vérifications Playwright |
 | `agent/actions.py` | liste des actions possibles et validation de la réponse JSON du modèle |
 | `agent/prompts.py` | consignes données au modèle et message envoyé à chaque tour |
-| `agent/masquage.py` | masquage des données personnelles (e-mail, téléphone, carte, IBAN) avant l'envoi au modèle |
+| `agent/masquage.py` | masquage des données personnelles (e-mail, téléphone, carte, IBAN, noms et adresses) avant l'envoi au modèle |
+| `agent/coffre.py` | mots de passe du cas : repérés, remplacés par un repère pour le modèle, rangés dans `.env` pour les tests générés |
+| `agent/donnees.py` | donnée unique d'une exécution (`{unique}`) : valeur, remplacement, repère gardé dans la mémoire |
+| `agent/navigateur.py` | choix du navigateur (Chromium, Firefox, WebKit) et de l'appareil émulé |
 | `agent/providers.py` | appels aux API Gemini et Claude, faux modèle pour les tests |
 | `agent/runner.py` | boucle de l'agent, rejeu de la mémoire, calcul du statut final, événements pour une interface |
 | `agent/memoire.py` | mémoire des parcours réussis et rejeu sans IA |
 | `agent/cookies.py` | bandeau de cookies : reconnu (outils de consentement courants, bandeau fait par le site) et accepté sans IA |
 | `agent/anomalie.py` | fiche d'anomalie et diagnostic de l'échec par le modèle |
-| `agent/documentation.py` | recherche dans la documentation officielle de Playwright, Selenium et Robot Framework : pages choisies, lecture, extraits, sources citées |
+| `agent/documentation.py` | recherche dans la documentation officielle de Playwright, Selenium, Robot Framework, Postman, Appium et pytest-bdd : pages choisies, lecture, extraits, sources citées |
 | `agent/execution.py` | exécution complète d'un cas de test, commune à la ligne de commande et à Alfred |
 | `agent/report.py` | rapport Markdown |
 | `agent/resultat.py` | bilan lisible par un programme (`resultat.json`), relu par Alfred |
 | `agent/bilan.py` | bilan d'une campagne : verdicts obtenus comparés aux verdicts attendus, appels au modèle, durée |
+| `agent/campagne.py` | campagne entière en une commande, reprise après le quota du jour |
 | `agent/codegen.py` | génération du script pytest-playwright |
 | `agent/codegen_robot.py` | génération du test Robot Framework (SeleniumLibrary) |
 | `agent/codegen_gherkin.py` | génération du scénario Gherkin et de sa version Robot Framework |
+| `agent/postman.py` | appels d'API de la page notés pendant le test, collection Postman et son environnement, secrets en variables |
+| `agent/squash.py` | import des cas de test dans Squash TM : fichier Excel au format du modèle d'import |
 | `tests/robot_double/` | double de SeleniumLibrary piloté par Playwright, pour tester les fichiers `.robot` sans Chrome |
+| `tests/newman_double.mjs` | rejoue une collection Postman avec Node.js, sans Newman, pour les tests du projet |
 | `.github/robot_echecs.py` | dans GitHub Actions, affiche les tests Robot en échec sur la page du run |
-| `demo_site/` | boutique de démonstration : connexion, produits, tri, formulaire de commande, un atelier (iframe, Shadow DOM, listes maison, fenêtre de confirmation, chargement lent), un bandeau de cookies, et deux pages d'actions (clavier, souris, onglets, fichier, glisser-déposer, composant fermé) |
+| `.github/newman_echecs.py` | dans GitHub Actions, affiche les requêtes Postman en échec sur la page du run |
+| `demo_site/` | boutique de démonstration : connexion, produits, tri, formulaire de commande, un atelier (iframe, Shadow DOM, listes maison, fenêtre de confirmation, chargement lent), un bandeau de cookies, deux pages d'actions (clavier, souris, onglets, fichier, glisser-déposer, composant fermé), un compte à créer et son espace client, un catalogue chargé par une API, et des offres sous un bandeau de cookies dans un cadre |
 | `donnees_de_test/` | les fichiers que l'agent peut joindre à un formulaire (action upload) |
 | `cas_de_test/terrain/` | campagne terrain : 20 cas sur cinq sites, et `campagne.md`, leurs verdicts attendus |
 | `alfred/server.py` | serveur local d'Alfred : API, flux d'événements en direct, protections |
@@ -555,6 +666,12 @@ GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (clas
 | Alfred répond qu'il lui faut une clé | une phrase qui n'est pas une commande simple part au modèle : ajoute `GEMINI_API_KEY` (ou `ANTHROPIC_API_KEY`) dans `.env`, puis relance Alfred. Sans clé, dis par exemple « lance la démo » |
 | « Je n'ai pas pu consulter la documentation officielle » | l'ordinateur n'atteint pas playwright.dev, selenium.dev ou robotframework.org (pas de réseau, proxy d'entreprise) : les liens donnés restent bons, ouvre-les dans le navigateur |
 | `Ajoute MOT_DE_PASSE_... dans le fichier .env` | le test généré tape un mot de passe qu'il lit dans `.env` : relance le cas avec l'agent (il l'y range), ou ajoute la ligne `MOT_DE_PASSE_...='...'` dans `.env` |
+| `... n'est pas installé pour Playwright` | Firefox ou WebKit manque : lance la commande indiquée, par exemple `python -m playwright install firefox` |
+| `Firefox ne sait pas émuler un téléphone` | choisis Chromium ou WebKit avec `--appareil`, ou Firefox sans appareil |
+| `Session « demo » introuvable` | lance d'abord le cas qui contient la ligne « Enregistrer la session : demo », par exemple CT-95 avant CT-96 |
+| La campagne s'arrête avec le code 4 | le quota du jour est épuisé : relance la même commande plus tard, elle reprend au cas interrompu (ou ajoute `--attendre`) |
+| `openpyxl manque` | `pip install -r requirements.txt`, puis relance `python -m agent.squash` |
+| `npx: command not found` | Newman a besoin de Node.js : installe-le depuis nodejs.org |
 | Pas de bouton micro | la reconnaissance vocale dépend du navigateur : elle fonctionne dans Chrome, Safari peut demander d'activer la dictée de macOS, Firefox ne la propose pas |
 
 ## Limites et pistes
@@ -566,9 +683,9 @@ Les limites de l'agent, relevées dans le code et, pour la plupart, vérifiées 
 - Un composant fermé écrit directement dans le HTML (`<template shadowrootmode="closed">`), créé avant tout script : on ne peut pas l'ouvrir. Les autres composants fermés sont ouverts par un script lancé avant la page, ce que le rapport signale ; avec Robot Framework, ce script passe par une commande de Chrome (Chrome seulement).
 - Plus de 6 cadres par page, ou un cadre imbriqué à plus de 3 niveaux. Les cadres de publicité et ceux de moins de 40 × 20 pixels sont ignorés exprès.
 - Un onglet qui s'ouvre plus de 0,3 seconde après le clic n'est pas suivi tout seul : il figure dans la liste des onglets, et le modèle peut y passer (switch_tab).
-- Au-delà de 80 éléments par page, et de 1 500 caractères de texte envoyés au modèle (600 par cadre).
+- Au-delà de 80 éléments par page, et de 1 500 caractères de texte envoyés au modèle (600 par cadre). Les éléments à l'écran passent d'abord, et le modèle sait combien d'autres sont plus loin : il fait défiler la page pour les voir.
 - Les images, les couleurs et le canvas, sauf avec la vision, et c'est alors un avis.
-- Un bandeau de cookies placé dans un cadre (iframe), comme celui de Sourcepoint, n'est pas accepté par le programme : l'agent le voit comme un cadre, et le modèle peut l'accepter lui-même.
+- Un bandeau de cookies dans un cadre n'est accepté par le programme que si le cadre se présente comme un outil de consentement (id, nom, titre ou adresse) : sinon, l'agent le voit comme un cadre, et le modèle peut l'accepter lui-même.
 
 **Ce que l'agent ne sait pas faire**
 
@@ -580,18 +697,22 @@ Les limites de l'agent, relevées dans le code et, pour la plupart, vérifiées 
 
 - Un id généré est écarté s'il contient 4 chiffres de suite ou 8 caractères hexadécimaux (« ember1234 », « a3f9c2e1b7 ») ; un id généré plus discret devient le sélecteur, et la mémoire comme les tests générés cassent au chargement suivant.
 - Un champ sans attribut, sans texte et sans libellé est désigné par sa classe, ou à défaut sa balise, et son rang : c'est fragile pour les tests rejoués.
-- Une donnée qui change à chaque exécution (code à usage unique, numéro généré) se vérifie par son format, avec un motif, mais une valeur saisie reste écrite en dur dans les tests générés et dans la mémoire.
-- Une vérification « absent » de l'agent regarde la page, ses composants et ses cadres. Dans les tests générés, elle porte sur la page et ses composants (Robot Framework) ou sur la page seule (pytest) : un texte affiché dans un cadre leur échappe.
-- Chaque cas repart d'un navigateur neuf : il faut se reconnecter, et rien ne prépare ni ne nettoie les données.
-- Chromium seul, dans une fenêtre de 1280 × 800, sans mobile.
+- Une donnée que le site génère (code à usage unique, numéro de commande) se vérifie par son format, avec un motif. Un code reçu par e-mail ou par SMS reste hors de portée de l'agent.
+- Une session garde les cookies et le stockage local : une connexion qui tient à autre chose (sessionStorage, certificat client) est à refaire, et une session expire comme sur le site. Rien ne nettoie les données créées par les tests.
+- Firefox n'émule pas de téléphone (limite de Playwright), et les tests Robot Framework n'émulent un téléphone qu'avec Chrome. WebKit est le moteur de Safari, pas Safari lui-même.
+- La collection Postman ne reprend que les appels faits par la page (50 au plus), et ses tests vérifient le statut et les champs des réponses, pas leurs valeurs. Une API appelée par le serveur du site, hors du navigateur, n'y figure pas.
+- L'import Squash TM est un fichier à importer, pas une synchronisation : un cas modifié se réimporte (action C, création), sans jeux de données ni exigences liées.
 - 20 actions au plus par cas, arrêt après 3 erreurs de suite. La première exécution d'un cas coûte un appel au modèle par action, soit une douzaine pour un cas de 10 étapes. Les suivantes n'en coûtent aucun, grâce à la mémoire, tant que le site ne change pas.
 - L'analyse d'un site suit les liens : sur une application monopage, où la navigation passe par des boutons, elle voit surtout la page d'arrivée et celle qui suit la connexion.
 
 **Données sensibles**
 
 - Les mots de passe de test sont rangés en clair dans le fichier `.env` (exclu de Git), comme les clés d'API. Un mot de passe écrit sans guillemets, ou sur une ligne qui ne parle pas de mot de passe, n'est pas reconnu : il part alors au modèle comme le reste du cas.
-- Le bandeau de cookies est accepté, jamais refusé : les traceurs du site sont actifs pendant le test. Chaque test repart d'un navigateur neuf, qui les oublie.
-- Le masquage ne voit pas un nom au milieu d'une phrase (« commande de Jean Dupont expédiée »), ni une adresse sans numéro de voie. Le texte du cas, identifiants compris (mais sans ses mots de passe), part chez le fournisseur du modèle, et avec la vision, la capture d'écran n'est pas masquée.
+- Le bandeau de cookies est accepté, jamais refusé : les traceurs du site sont actifs pendant le test. Chaque test repart d'un navigateur neuf, qui les oublie, sauf ceux d'une session enregistrée.
+- Les tests Robot Framework ne bloquent les publicités qu'avec Chrome : avec Firefox, une publicité plein écran peut couvrir la page.
+- Le masquage ne voit pas un nom au milieu d'une phrase (« commande de Jean Dupont expédiée »), ni une adresse sans numéro de voie. Le texte du cas, identifiants compris (mais sans ses mots de passe), part chez le fournisseur du modèle. Sur la capture de la vision, seules les données que le texte masque sont cachées : un nom dans une image, ou écrit en dehors du texte de la page (canvas), reste visible.
+
+**Nouveau en version 0.10** : la campagne en une commande, avec reprise après le quota, et la relance des tests en échec à la voix ; la donnée unique à chaque exécution (`{unique}`) et les sessions réutilisées ; Firefox, WebKit et les téléphones émulés ; les localisateurs recommandés par Playwright dans le test pytest ; la collection Postman des appels d'API, rejouée par Newman ; l'import dans Squash TM ; les publicités bloquées, le bandeau de cookies dans un cadre, les éléments à l'écran d'abord, la capture masquée de la vision et la vérification « absent » dans les cadres pour les tests générés ; la documentation de Postman, d'Appium et de pytest-bdd pour Alfred.
 
 **Nouveau en version 0.9** : les mots de passe jamais envoyés au modèle ni écrits dans les fichiers produits, et le masquage des noms et des adresses postales.
 
@@ -603,7 +724,7 @@ Les limites de l'agent, relevées dans le code et, pour la plupart, vérifiées 
 
 **Levées en version 0.5** : les iframes, le Shadow DOM ouvert, les listes déroulantes faites de div, les éditeurs riches (contenteditable), les champs dont le libellé n'est pas relié par for/id, les fenêtres JavaScript (alert, confirm, prompt), l'attente d'un chargement lent (action `wait`, 30 secondes au plus) et la vérification d'un format (motif). Les données personnelles de la page sont aussi masquées avant l'envoi au modèle.
 
-Pistes : import des cas de test depuis un export Squash TM, campagne entière lancée en une commande, campagne lancée à la voix (« relance tous les tests qui ont échoué »).
+Pistes : lire un export Squash TM pour en lancer les cas, tester une application mobile native avec Appium, générer aussi les tests au format pytest-bdd.
 
 ## Licence
 

@@ -48,7 +48,15 @@ def test_script_genere_rejoue_le_parcours_sans_ia(pw_page, pw_browser, demo_url,
     """Le script pytest généré doit passer tout seul, sur une page neuve."""
     result = run(pw_page, demo_url, LOGIN_OK, tmp_path)
     code = generate_script(result)
-    assert "page.locator('button:has-text(\"Ajouter au panier\")').nth(0).click()" in code
+    # Localisateurs recommandés par Playwright (rôle et nom, texte d'aide), vérifiés dans la page pendant l'exécution
+    for line in ("page.get_by_role('textbox', name='Identifiant', exact=True).fill('standard_user')",
+                 "page.get_by_placeholder('Mot de passe', exact=True).fill('secret_sauce')",
+                 "page.get_by_role('button', name='Connexion', exact=True).click()",
+                 # trois boutons identiques : le premier, comme pendant l'exécution
+                 "page.get_by_role('button', name='Ajouter au panier', exact=True).nth(0).click()",
+                 # la liste n'a pas de nom accessible exact : le sélecteur stable reste
+                 "page.locator('[data-test=\"sort\"]').select_option('Prix croissant')"):
+        assert line in code, line
 
     namespace = {}
     exec(compile(code, "test_genere.py", "exec"), namespace)
@@ -223,13 +231,14 @@ def test_verifications_riches_rejouees_sans_ia(pw_page, pw_browser, demo_url, tm
     assert len(result.checks) == 10 and all(step.result.check for step in result.checks)
 
     code = generate_script(result)
-    assert "expect(page.locator('#user-name')).to_have_value('standard_user')" in code
+    assert "expect(page.get_by_role('textbox', name='Identifiant', exact=True)).to_have_value('standard_user')" in code
     assert "assert attendre(lambda: compte(page, 'Ajouter au panier') == 3)" in code
     assert "expect(page.locator('[data-test=\"sort\"]')).to_have_value('price')" in code  # valeur réelle de l'option
     assert "re.compile('Lampe\\\\s+de\\\\s+vélo.*T\\\\-shirt.*Sac\\\\s+à\\\\s+dos', re.IGNORECASE | re.DOTALL)" in code
-    assert "expect(page.locator('[data-test=\"continuer\"]')).to_be_disabled()" in code
-    assert "expect(page.locator('[data-test=\"cgu\"]')).not_to_be_checked()" in code
-    assert "expect(page.locator('#code-postal')).to_have_value('')" in code
+    assert "expect(page.get_by_role('button', name='Continuer', exact=True)).to_be_disabled()" in code
+    assert ("expect(page.get_by_role('checkbox', name=\"J'accepte les conditions générales de vente\", exact=True))"
+            ".not_to_be_checked()") in code
+    assert "expect(page.get_by_role('textbox', name='Code postal', exact=True)).to_have_value('')" in code
     assert "import time" in code and "def compte(" in code
 
     namespace = {}

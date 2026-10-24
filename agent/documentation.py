@@ -1,4 +1,4 @@
-"""Recherche dans la documentation officielle de Playwright, Selenium et Robot Framework.
+"""Recherche dans la documentation officielle de Playwright, Selenium, Robot Framework, Postman, Appium et pytest-bdd.
 
 Deux usages :
 - une question du testeur à Alfred : « comment gérer une iframe avec Robot Framework ? » ;
@@ -112,13 +112,57 @@ PAGES = (
           "argument", "resource", "suite")),
     Page("Robot Framework", "Robot Framework et Selenium : bien démarrer", "https://docs.robotframework.org/docs/different_libraries/selenium",
          ("installation", "installer", "install", "webdriver", "chromedriver", "navigateur", "browser")),
+    # Ce que produit l'agent depuis la version 0.10 : tests pytest, appareils émulés, sessions, appels d'API.
+    # Les mots qui contiennent un mot vide (« de », « les ») ne trouveraient jamais rien : un mot seul à la place.
+    Page("Playwright", "Pytest Plugin Reference : lancer les tests avec pytest", "https://playwright.dev/python/docs/test-runners",
+         ("pytest", "fixture", "fixtures", "browser_context_args", "browser", "navigateur", "firefox", "webkit", "chromium",
+          "headed", "lancer", "conftest", "device")),
+    Page("Playwright", "Emulation : appareils mobiles, langue, géolocalisation", "https://playwright.dev/python/docs/emulation",
+         ("emulation", "emuler", "mobile", "iphone", "android", "tablette", "telephone", "appareil", "device", "viewport",
+          "user agent", "geolocalisation", "locale", "timezone")),
+    Page("Playwright", "Authentication : réutiliser une session", "https://playwright.dev/python/docs/auth",
+         ("session", "storage_state", "authentification", "authentication", "connecte", "connexion", "reutiliser", "login")),
+    Page("Playwright", "Network : intercepter et bloquer des requêtes", "https://playwright.dev/python/docs/network",
+         ("route", "intercepter", "bloquer", "abort", "mock", "requete", "requetes", "network", "reseau", "publicite",
+          "publicites")),
+    Page("Playwright", "API testing : tester une API", "https://playwright.dev/python/docs/api-testing",
+         ("api", "apirequestcontext", "endpoint", "rest", "requete http")),
+    Page("Postman", "Tests et assertions (pm.test, pm.expect)",
+         "https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-test-expect",
+         ("pm.test", "pm.expect", "assertion", "assertions", "test", "tests", "verifier", "verifie", "statut", "status",
+          "chai")),
+    Page("Postman", "Écrire des scripts de test", "https://learning.postman.com/docs/tests-and-scripts/write-scripts/test-scripts",
+         ("script", "scripts", "pm.response", "reponse", "response", "json", "pre-request", "pre requete")),
+    Page("Postman", "Newman : lancer une collection en ligne de commande",
+         "https://learning.postman.com/docs/reference/newman-cli/command-line-integration-with-newman",
+         ("newman", "commande", "command line", "cli", "reporter", "rapport", "integration continue", "github actions",
+          "env-var", "lancer", "npx", "npm")),
+    Page("Postman", "Variables et environnements", "https://learning.postman.com/docs/use/send-requests/variables/managing-environments",
+         ("variable", "variables", "environnement", "environment", "baseurl", "secret", "collection variable")),
+    Page("Postman", "Importer une collection", "https://learning.postman.com/docs/getting-started/importing-and-exporting/importing-data",
+         ("importer", "import", "collection", "fichier json")),
+    Page("Appium", "Introduction à Appium", "https://appium.io/docs/en/latest/intro/",
+         ("mobile", "application mobile", "android", "ios", "driver", "drivers", "uiautomator2", "xcuitest", "fonctionne",
+          "principe", "serveur")),
+    Page("Appium", "Installer Appium", "https://appium.io/docs/en/latest/quickstart/install/",
+         ("installer", "installation", "install", "npm", "node")),
+    Page("Appium", "Écrire un premier test en Python", "https://appium.io/docs/en/latest/quickstart/test-py/",
+         ("python", "premier", "quickstart", "demarrer", "exemple", "webdriver", "appium-python-client")),
+    Page("Appium", "Session Capabilities : décrire l'appareil et l'application", "https://appium.io/docs/en/latest/guides/caps/",
+         ("capabilities", "capability", "platformname", "automationname", "appareil", "device", "apk", "app")),
+    Page("pytest-bdd", "pytest-bdd : scénarios Gherkin avec pytest", "https://pytest-bdd.readthedocs.io/en/stable/",
+         ("pytest-bdd", "gherkin", "feature", "scenario", "scenarios", "given", "when", "then", "step", "etape", "bdd",
+          "fixture", "parametre")),
 )
 
 # Outils cités dans la question. « SeleniumLibrary » désigne Robot Framework : on le cherche en premier.
 OUTILS = (
     ("Robot Framework", ("robot framework", "robotframework", "robot", "seleniumlibrary", "builtin")),
+    ("pytest-bdd", ("pytest bdd", "pytest_bdd")),
     ("Playwright", ("playwright",)),
     ("Selenium", ("selenium", "webdriver")),
+    ("Postman", ("postman", "newman")),
+    ("Appium", ("appium",)),
 )
 
 # Les pages lues quand aucun mot de la question ne désigne une page : les références de chaque outil
@@ -128,6 +172,10 @@ PAR_DEFAUT = {
     "Playwright": ("https://playwright.dev/python/docs/api/class-locator", "https://playwright.dev/python/docs/api/class-page"),
     "Selenium": ("https://www.selenium.dev/documentation/webdriver/elements/finders/",
                  "https://www.selenium.dev/documentation/webdriver/elements/interactions/"),
+    "Postman": ("https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-test-expect",
+                "https://learning.postman.com/docs/reference/newman-cli/command-line-integration-with-newman"),
+    "Appium": ("https://appium.io/docs/en/latest/intro/", "https://appium.io/docs/en/latest/quickstart/test-py/"),
+    "pytest-bdd": ("https://pytest-bdd.readthedocs.io/en/stable/",),
 }
 
 # La documentation est en anglais : les mots français trouvent leur équivalent
@@ -165,7 +213,7 @@ _VIDES = set("""
 comment quel quelle quels quelles que qui quoi est sont faire fait gerer gere utiliser utilise avec dans pour par sur une
 des les le la un du de et ou on il elle je tu vous nous en au aux ce cet cette ces son sa ses mon ma mes ton ta tes
 how what which the a an and or of to in on with for is are do does can use using pourquoi peut peux veux
-robot framework robotframework playwright selenium webdriver python alfred stp s'il plait merci
+robot framework robotframework playwright selenium webdriver python alfred stp s'il plait merci postman appium
 """.split())
 # Une négation dans la question : « Element Should Not Be Visible » peut alors être la bonne réponse
 _NEGATIONS = ("pas", "plus", "jamais", "not", "absent", "absente", "disparu", "disparait", "disparaisse", "cache",
@@ -186,7 +234,7 @@ def _has(text: str, phrase: str) -> bool:
 
 
 def tools_in(text: str) -> list[str]:
-    """Les outils cités : Robot Framework, Playwright, Selenium."""
+    """Les outils cités : Robot Framework, pytest-bdd, Playwright, Selenium, Postman, Appium."""
     plain = normalize(text)
     found = []
     for outil, noms in OUTILS:

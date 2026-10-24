@@ -27,13 +27,14 @@ from pathlib import Path
 
 from agent import __version__, documentation
 from agent.actions import _extract_json
+from agent.navigateur import NAVIGATEURS, appareils, nom_appareil
 from agent.propositions import ask, case_from_dict, next_codes
 from agent.providers import Provider
 
 from .maitre import CREATEUR
 
-ACTIONS = ("aucune", "lancer", "selectionner", "arreter", "ouvrir", "rediger", "proposer")
-FILES = ("rapport", "anomalie", "pytest", "robot", "gherkin", "robot_bdd")
+ACTIONS = ("aucune", "lancer", "selectionner", "arreter", "ouvrir", "rediger", "proposer", "relancer_echecs")
+FILES = ("rapport", "anomalie", "pytest", "robot", "gherkin", "robot_bdd", "postman")
 MAX_REPLY = 450  # caractères lus à voix haute au plus
 MAX_TEXT = 500  # longueur d'une phrase du testeur
 MAX_HISTORY = 6  # échanges précédents envoyés au modèle
@@ -51,10 +52,11 @@ Réponds uniquement avec un objet JSON : {"reponse": "...", "action": {"type": "
 
 Actions possibles (une seule par réponse) :
 - {"type": "aucune"} : répondre seulement (question, explication, conversation).
-- {"type": "lancer", "cas": "<code ou identifiant de la liste>", "url": "https://..." (facultatif), "vision": true (facultatif)} : lancer un cas de test de la liste. Mets "url" seulement si le testeur demande un autre site, et "vision" s'il demande de regarder l'écran.
+- {"type": "lancer", "cas": "<code ou identifiant de la liste>", "url": "https://..." (facultatif), "vision": true (facultatif), "navigateur": "chromium" | "firefox" | "webkit" (facultatif), "appareil": "iPhone 15" (facultatif)} : lancer un cas de test de la liste. Mets "url" seulement si le testeur demande un autre site, "vision" s'il demande de regarder l'écran, "navigateur" s'il nomme Firefox, WebKit ou Safari (Safari donne "webkit"), "appareil" s'il demande un téléphone ou une tablette (iPhone 15, Pixel 7, Galaxy S24, iPad Mini ; "" pour revenir à l'ordinateur).
 - {"type": "selectionner", "cas": "<code ou identifiant>"} : afficher un cas sans le lancer.
+- {"type": "relancer_echecs"} : relancer, l'un après l'autre, les cas dont la dernière exécution a échoué ou a été bloquée.
 - {"type": "arreter"} : arrêter la mission en cours.
-- {"type": "ouvrir", "fichier": "rapport" | "anomalie" | "pytest" | "robot" | "gherkin", "cas": "CT-14" (facultatif)} : ouvrir un fichier d'un résultat récent, par défaut le plus récent qui en a un.
+- {"type": "ouvrir", "fichier": "rapport" | "anomalie" | "pytest" | "robot" | "gherkin" | "postman", "cas": "CT-14" (facultatif)} : ouvrir un fichier d'un résultat récent, par défaut le plus récent qui en a un.
 - {"type": "rediger", "titre": "...", "url": "https://...", "preconditions": "...", "etapes": ["..."], "resultats": ["..."]} : rédiger le cas de test que le testeur te dicte. Étapes à l'infinitif, une action chacune ; résultats attendus observables. Sans adresse donnée, utilise le site par défaut. Le cas sera affiché, puis lancé quand le testeur dira « vas-y ».
 - {"type": "proposer", "url": "https://..."} : analyser un site pour proposer des user stories et leurs critères en Gherkin.
 
@@ -74,15 +76,19 @@ IDENTITE = """Qui tu es :
 - En ce moment, c'est le modèle {modele} qui te fait parler.
 
 Ce que fait l'agent que tu pilotes :
-- Il exécute un cas de test écrit en français, en Markdown ou en Gherkin, dans un vrai navigateur Chromium piloté par Playwright. À chaque tour, il observe la page, le modèle d'IA (Gemini ou Claude) choisit une seule action en désignant un élément par son numéro, puis le programme l'exécute.
+- Il exécute un cas de test écrit en français, en Markdown ou en Gherkin, dans un vrai navigateur (Chromium par défaut) piloté par Playwright. À chaque tour, il observe la page, le modèle d'IA (Gemini ou Claude) choisit une seule action en désignant un élément par son numéro, puis le programme l'exécute.
 - L'IA propose, le programme vérifie : le verdict (réussi, échoué ou bloqué) vient des vérifications réelles, jamais de l'avis du modèle.
-- Il voit aussi dans les cadres (iframes) et les composants web (Shadow DOM), manie les listes déroulantes faites de div, répond aux fenêtres JavaScript, attend un chargement lent et vérifie un format avec un motif. Un bandeau de cookies qui couvre la page est accepté par le programme, sans IA. Les mots de passe du cas de test ne partent jamais au modèle : il ne voit qu'un repère, « [mot de passe] », et le programme tape le vrai ; les noms et adresses postales de la page sont masqués aussi. Les e-mails, téléphones, cartes et IBAN affichés par la page sont masqués avant l'envoi au modèle.
-- Après chaque exécution, il génère trois tests qui se rejouent sans IA : pytest avec Playwright, Robot Framework avec SeleniumLibrary, et un scénario Gherkin en français. Un parcours réussi est mémorisé et rejoué sans IA ; si le site change, l'IA répare le parcours.
+- Il voit aussi dans les cadres (iframes) et les composants web (Shadow DOM), manie les listes déroulantes faites de div, répond aux fenêtres JavaScript, attend un chargement lent et vérifie un format avec un motif. Un bandeau de cookies qui couvre la page est accepté par le programme, sans IA, même quand il est dans un cadre ; les publicités plein écran sont bloquées. Les mots de passe du cas de test ne partent jamais au modèle : il ne voit qu'un repère, « [mot de passe] », et le programme tape le vrai ; les noms et adresses postales de la page sont masqués aussi. Les e-mails, téléphones, cartes et IBAN affichés par la page sont masqués avant l'envoi au modèle, et les champs personnels sont cachés sur la capture d'écran quand la vision est activée.
+- Après chaque exécution, il génère trois tests qui se rejouent sans IA : pytest avec Playwright, Robot Framework avec SeleniumLibrary, et un scénario Gherkin en français. Si la page a appelé son API pendant le test, il écrit aussi une collection Postman de ces appels, avec leurs tests, que Newman rejoue en ligne de commande. Un parcours réussi est mémorisé et rejoué sans IA ; si le site change, l'IA répare le parcours.
 - Quand un test échoue, il rédige la fiche d'anomalie, avec un diagnostic de l'IA présenté comme un avis à confirmer. Sur une erreur technique de Playwright, le diagnostic s'appuie sur des extraits de la documentation officielle, avec leurs liens.
-- À une question technique sur Playwright, Selenium ou Robot Framework (« comment gérer une iframe ? »), tu réponds à partir de leur documentation officielle, et le lien de la page s'affiche sous ta réponse.
+- À une question technique sur Playwright, Selenium, Robot Framework, Postman, Appium ou pytest-bdd (« comment gérer une iframe ? »), tu réponds à partir de leur documentation officielle, et le lien de la page s'affiche sous ta réponse.
 - Il analyse un site pour proposer des user stories et leurs critères en Gherkin, puis les cas de test d'une user story.
 - Une campagne de vingt cas sur cinq sites d'entraînement mesure la justesse de ses verdicts.
 - Il tape des touches du clavier, survole, double-clique, fait un clic droit, fait défiler la page, suit un nouvel onglet, joint un fichier du dossier de données de test et glisse-dépose. Il entre même dans les composants web fermés.
+- Il teste avec Chromium, Firefox ou WebKit (le moteur de Safari), et émule un téléphone ou une tablette (iPhone, Pixel, iPad). Un cas peut reprendre une session déjà connectée (ligne « Session : ») et créer une donnée unique à chaque exécution ({{unique}}, par exemple dans une adresse e-mail).
+- Tu peux relancer d'une phrase tous les tests en échec, l'un après l'autre. Une campagne entière se lance en une commande (python -m agent.campagne) et reprend où elle s'était arrêtée quand le quota du jour est épuisé.
+- Le test pytest généré désigne les éléments comme le recommande Playwright : par leur rôle et leur nom (get_by_role), leur libellé ou leur texte d'aide.
+- Il prépare l'import des cas de test dans Squash TM, en une commande (python -m agent.squash) : un fichier Excel au format du modèle d'import, sans les mots de passe.
 - Ses limites : il ne passe pas une authentification HTTP du navigateur, ne glisse-dépose pas d'un cadre à un autre, et s'arrête après vingt actions ou trois erreurs de suite."""
 
 
@@ -225,6 +231,8 @@ def check_action(action: object, cases: list[dict], cases_dir: Path, default: st
         return {"type": "aucune"}, ""
     if kind == "arreter":
         return {"type": "arreter"}, ""
+    if kind == "relancer_echecs":
+        return {"type": "relancer_echecs"}, ""
     if kind == "ouvrir":
         name = str(action.get("fichier") or "").strip().lower()
         if name not in FILES:
@@ -251,6 +259,16 @@ def check_action(action: object, cases: list[dict], cases_dir: Path, default: st
                 checked["url"] = url
             if action.get("vision") is True:
                 checked["vision"] = True
+            navigateur = str(action.get("navigateur") or "").strip().lower()
+            navigateur = "webkit" if navigateur == "safari" else navigateur
+            if navigateur in NAVIGATEURS:
+                checked["navigateur"] = navigateur
+            if "appareil" in action:  # "" : retour à l'ordinateur
+                wanted_device = str(action.get("appareil") or "").strip()
+                device = nom_appareil(wanted_device) if wanted_device and appareils() else wanted_device
+                if wanted_device and not device:
+                    return {"type": "aucune"}, f"Je ne sais pas émuler l'appareil {wanted_device}. Essayez par exemple iPhone 15 ou Pixel 7."
+                checked["appareil"] = device or ""
         return checked, ""
     if kind == "proposer":
         url = _url(action.get("url"), default)
@@ -285,7 +303,8 @@ def _padded(code: str) -> str:
 
 
 FILE_NAMES = {"rapport": "le rapport", "anomalie": "la fiche d'anomalie", "pytest": "le test pytest", "robot": "le test Robot",
-              "gherkin": "le scénario Gherkin", "robot_bdd": "le scénario Gherkin pour Robot"}
+              "gherkin": "le scénario Gherkin", "robot_bdd": "le scénario Gherkin pour Robot",
+              "postman": "la collection Postman"}
 
 
 def locate_file(action: dict, results: list[dict]) -> tuple[dict, str]:
@@ -324,8 +343,8 @@ def converse(provider: Provider, text: str, history: list[dict], context: str, c
              default: str, secrets: set[str] = frozenset(), results: list[dict] = ()) -> dict:
     """Une phrase du testeur, une réponse d'Alfred (une requête au modèle).
 
-    Une question technique sur Playwright, Selenium ou Robot Framework reçoit une réponse tirée
-    de la documentation officielle, avec les liens des pages citées (voir agent/documentation.py).
+    Une question technique sur Playwright, Selenium, Robot Framework, Postman, Appium ou pytest-bdd
+    reçoit une réponse tirée de la documentation officielle, avec les liens des pages citées (voir agent/documentation.py).
     """
     pages = documentation.question_pages(text)
     reply = documentation.answer(provider, text, pages, lambda model, system, user: ask(model, system, user, max_tokens=2000)) \

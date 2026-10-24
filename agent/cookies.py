@@ -15,6 +15,10 @@ L'outil de consentement s'affiche souvent juste après la page : quand la page e
 charge un, l'agent attend son bandeau quelques secondes. Sinon, il ne fait que
 regarder, sans rien attendre.
 
+Certains outils (Sourcepoint, TrustArc) affichent leur bandeau dans un cadre
+(iframe) posé sur la page : l'agent y cherche aussi le bouton, quand le cadre
+se présente comme celui du consentement (son nom, son titre ou son adresse).
+
 L'acceptation est une étape du test, marquée « sans IA » dans le rapport, et les
 tests générés font de même : ils acceptent le bandeau s'il s'affiche.
 
@@ -32,12 +36,12 @@ import itertools
 import re
 import time
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
 
-from .browser import ActionResult
+from .browser import ActionResult, _frame_path
 
 WAIT_S = 5.0  # attente du bandeau quand la page charge un outil de consentement
 MAX_PER_RUN = 3  # un bandeau qui revient sans cesse est laissé au modèle
@@ -73,6 +77,7 @@ OUTILS = (
     Outil("iubenda", "button.iubenda-cs-accept-btn"),
     Outil("Osano", "button.osano-cm-accept-all"),
     Outil("TrustArc", "#truste-consent-button"),
+    Outil("Sourcepoint", "button.sp_choice_type_11"),  # dans son cadre (iframe)
     Outil("Usercentrics", "[data-testid='uc-accept-all-button']", "#usercentrics-root",
           "dom:document.querySelector('#usercentrics-root').shadowRoot"
           ".querySelector('[data-testid=\"uc-accept-all-button\"]')"),
@@ -97,9 +102,12 @@ _REFUS = re.compile(r"(refuser|rejeter|decliner|personnaliser|parametrer|gerer|c
                     r"(cookies?|traceurs|options|preferences|choix)|continuer sans accepter|tout refuser|"
                     r"ne pas (autoriser|accepter|consentir)|do not consent|reject all|manage options|retirer (mon |son |le )?consentement")
 _HEADING = re.compile(r"^\s*#+\s*(.*)$")
+# Un cadre (iframe) de consentement : son id, son nom, son titre ou son adresse le disent
+_CADRE = re.compile(r"cookie|consent|\bcmp\b|privacy|gdpr|rgpd|sourcepoint|sp_message|trustarc|truste|didomi|onetrust|"
+                    r"quantcast|usercentrics|cookiebot|consentmanager", re.IGNORECASE)
 
 _FIND_JS = r"""
-({outils, labels, words, mark, id}) => {
+({outils, labels, words, mark, id, cadre}) => {
   const visible = (el) => {
     const box = el.getBoundingClientRect(), style = getComputedStyle(el);
     return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'
@@ -131,8 +139,8 @@ _FIND_JS = r"""
       if (named.test(name) || style.position === 'fixed' || style.position === 'sticky' || box.tagName === 'DIALOG'
           || ['dialog', 'alertdialog'].includes(box.getAttribute('role'))) { banner = box; break; }
     }
-    if (!banner) continue;
-    const text = norm(banner.innerText || banner.textContent);
+    if (!banner && !cadre) continue;  // dans un cadre de consentement, le cadre est le bandeau
+    const text = norm(banner ? banner.innerText || banner.textContent : document.body.innerText);
     if (text.length <= 5000 && about.test(text)) return found(el, -1);
   }
   return null;
@@ -161,13 +169,18 @@ class Bandeau:
     playwright: str  # code Playwright qui désigne le bouton, repris par le test pytest généré
     robot: str  # localisateur SeleniumLibrary, repris par les tests Robot Framework générés
     marque: str = ""  # le bouton dans la page, le temps de cliquer dessus
+    cadre: list | None = None  # le cadre (iframe) du bandeau : [{"css", "nth", "label"}], comme pour les éléments
+    frame: object | None = field(default=None, repr=False, compare=False)  # ce cadre, pour Playwright
 
     @property
     def nom(self) -> str:
         return f"Bandeau de cookies ({self.outil})" if self.outil else "Bandeau de cookies du site"
 
     def args(self) -> dict:
-        return {"outil": self.outil, "bouton": self.texte, "playwright": self.playwright, "robot": self.robot}
+        args = {"outil": self.outil, "bouton": self.texte, "playwright": self.playwright, "robot": self.robot}
+        if self.cadre:
+            args["cadre"] = self.cadre
+        return args
 
 
 def _plain(text: str) -> str:
@@ -227,8 +240,52 @@ def _selectors(found: dict) -> tuple[str, str]:
     return code, f"xpath:{xpath}[normalize-space(.)={_xpath_string(found['shown'])}]"
 
 
+def _consent_frames(page: Page) -> list[tuple]:
+    """Les cadres (iframes) de consentement de la page : (cadre Playwright, chemin), un seul niveau."""
+    found = []
+    for frame in page.frames:
+        if frame.parent_frame is not page.main_frame or frame.is_detached():
+            continue
+        path = _frame_path(frame)
+        if path is None:
+            continue  # cadre caché ou en cours de chargement
+        hop = path[-1]
+        if _CADRE.search(" ".join((hop.get("css") or "", hop.get("label") or "", frame.name or "", frame.url or ""))):
+            found.append((frame, path))
+    return found
+
+
+def _search(page: Page, mark: str) -> tuple[dict, object, list | None] | None:
+    """Le bouton qui accepte : dans la page, sinon dans un cadre de consentement. (bouton, cadre, chemin du cadre)."""
+    options = {"outils": [{"bouton": o.bouton, "hote": o.hote} for o in OUTILS], "labels": list(_ACCEPTE),
+               "words": _BANDEAU, "mark": MARK, "id": mark, "cadre": False}
+    try:
+        found = page.evaluate(_FIND_JS, options)
+    except PlaywrightError:  # page en cours de navigation
+        found = None
+    if found:
+        return found, None, None
+    for frame, path in _consent_frames(page):
+        try:
+            found = frame.evaluate(_FIND_JS, {**options, "cadre": True})
+        except PlaywrightError:
+            continue
+        if found:
+            return found, frame, path
+    return None
+
+
+def _in_frame(code: str, path: list | None) -> str:
+    """Le code Playwright du bouton, dans son cadre : page.frame_locator('iframe[title="..."]').get_by_role(...)."""
+    if not path:
+        return code
+    scope = "page" + "".join(f".frame_locator({hop['css']!r})" + (f".nth({hop['nth']})" if hop["nth"] is not None else "")
+                             for hop in path)
+    return scope + code[len("page"):]
+
+
 def find(page: Page, wait_s: float = 0.0) -> Bandeau | None:
-    """Le bandeau de cookies affiché, s'il y en a un.
+    """Le bandeau de cookies affiché, s'il y en a un (dans la page, ou dans un cadre de consentement).
 
     Avec wait_s, attend qu'il s'affiche quand la page charge un outil de consentement ;
     sans outil de consentement, ne fait que regarder, sans rien attendre.
@@ -236,38 +293,39 @@ def find(page: Page, wait_s: float = 0.0) -> Bandeau | None:
     deadline, loaded = time.monotonic() + wait_s, None
     while True:
         mark = str(next(_marks))
-        try:
-            found = page.evaluate(_FIND_JS, {"outils": [{"bouton": o.bouton, "hote": o.hote} for o in OUTILS],
-                                             "labels": list(_ACCEPTE), "words": _BANDEAU, "mark": MARK, "id": mark})
-        except PlaywrightError:  # page en cours de navigation
-            found = None
-        if found:
+        search = _search(page, mark)
+        if search:
             break
         if loaded is None:
             try:
-                loaded = wait_s > 0 and bool(page.evaluate(_TOOL_JS))
+                loaded = wait_s > 0 and (bool(page.evaluate(_TOOL_JS)) or bool(_consent_frames(page)))
             except PlaywrightError:
                 loaded = wait_s > 0
         if not loaded or time.monotonic() >= deadline:
             return None
         page.wait_for_timeout(200)
+    found, frame, path = search
     if found["outil"] >= 0:
         outil = OUTILS[found["outil"]]
         code, robot, name = f"page.locator({outil.bouton!r})", outil.robot_locator(), outil.nom
     else:
         (code, robot), name = _selectors(found), ""
-    return Bandeau(name, found["texte"] or "Accepter", code, robot, f'[{MARK}="{mark}"]')
+    return Bandeau(name, found["texte"] or "Accepter", _in_frame(code, path), robot, f'[{MARK}="{mark}"]', path, frame)
 
 
 def accept(page: Page, banner: Bandeau) -> ActionResult:
     """Clique sur le bouton qui accepte, puis attend que le bandeau disparaisse."""
-    button = page.locator(banner.marque).first
+    button = (banner.frame or page).locator(banner.marque).first  # dans son cadre, s'il en a un
     try:
         try:
             button.click(timeout=CLICK_TIMEOUT_MS)
         except PlaywrightError:  # encore en train d'apparaître, ou recouvert : le clic JavaScript suffit
             button.evaluate("(el) => el.click()")
-        button.wait_for(state="hidden", timeout=HIDE_TIMEOUT_MS)
+        try:
+            button.wait_for(state="hidden", timeout=HIDE_TIMEOUT_MS)
+        except PlaywrightError:
+            if banner.frame is None or not banner.frame.is_detached():  # un cadre retiré de la page : bandeau fermé
+                raise
     except PlaywrightError as exc:
         reason = str(exc).strip().splitlines()[0][:200] if str(exc).strip() else exc.__class__.__name__
         return ActionResult(False, f"{banner.nom} : le bouton « {banner.texte} » n'a pas fermé le bandeau ({reason}).")

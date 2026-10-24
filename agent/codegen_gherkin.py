@@ -22,6 +22,9 @@ l'étape avec SeleniumLibrary. Le scénario Gherkin devient exécutable, sans IA
 
 Un mot-clé qui agit dans un cadre (iframe) le sélectionne, puis revient à la
 page : chaque phrase se suffit à elle-même.
+
+{unique} reste écrit tel quel dans les phrases : le mot-clé le remplace par une
+valeur nouvelle à chaque lancement (${UNIQUE}, créée avant le scénario).
 """
 
 from __future__ import annotations
@@ -30,10 +33,13 @@ import re
 from typing import TYPE_CHECKING
 
 from .actions import STATE_LABELS, au, jusqua, key_label
-from .codegen_robot import (_ALERTS, _CLOSED, _COOKIES, _COUNT, _DRAG, _HIDES, _OPEN, _ORDER, _SECRETS, _SHOWS, _VISIBLE,
-                            CLOSED_VARIABLE, SECRETS_SETUP, TEXT_BLOCKS, VARIABLES, _state_keyword, frame_locator, robot_arg,
-                            robot_locator, secret_cell, selenium_keys, typing_keyword, value_keyword)
+from .codegen_robot import (_ADS, _ALERTS, _CLOSED, _COOKIES, _COOKIES_FRAME, _COUNT, _DRAG, _HIDES, _OPEN, _ORDER, _SECRETS, _SESSION_LOAD,
+                            _SESSION_SAVE, _SHOWS, _UNIQUE, _VISIBLE, ADS_VARIABLE, CLOSED_VARIABLE, SECRETS_SETUP, TEXT_BLOCKS,
+                            UNIQUE_SETUP,
+                            _state_keyword, frame_locator, open_block, robot_arg, robot_locator, robot_variables, secret_cell,
+                            selenium_keys, typing_keyword, value_keyword)
 from .coffre import env_names, split
+from .donnees import UNIQUE, masquer
 
 if TYPE_CHECKING:
     from .browser import Element
@@ -95,7 +101,23 @@ _COMMON = {
     "bottom": ("je fais défiler la page jusqu'en bas", ["Execute Javascript    window.scrollTo(0, document.body.scrollHeight)"],
                None),
     "top": ("je remonte en haut de la page", ["Execute Javascript    window.scrollTo(0, 0)"], None),
+    # Sessions : commencer déjà connecté, ou garder la session pour les scénarios suivants (dossier sessions/)
+    "session_load": ('je reprends la session "${nom}"', ["Reprendre la session    ${nom}"], _SESSION_LOAD),
+    "session_save": ('j\'enregistre la session "${nom}"', ["Enregistrer la session    ${nom}"], _SESSION_SAVE),
 }
+
+_EMBEDDED = re.compile(r"\$\{(\w+)(?::((?:[^{}]|\{[^{}]*\})*))?\}")  # argument intégré au nom d'un mot-clé : ${nom}, ${n:\d+}
+
+
+def _keyword_pattern(name: str) -> re.Pattern:
+    """L'expression régulière qui reconnaît les phrases de ce mot-clé (arguments intégrés au nom, comme Robot)."""
+    parts, last = [], 0
+    for match in _EMBEDDED.finditer(name):
+        parts.append(re.escape(name[last:match.start()]))
+        parts.append(f"({match.group(2)})" if match.group(2) else "(.*?)")
+        last = match.end()
+    parts.append(re.escape(name[last:]))
+    return re.compile("".join(parts), re.IGNORECASE)
 
 
 def feature_filename(run: RunResult) -> str:
@@ -185,13 +207,32 @@ class _Frames:
 class _Scenario:
     """Phrases du scénario, et mots-clés Robot qui les rejouent."""
 
-    def __init__(self, names: dict | None = None) -> None:
+    def __init__(self, names: dict | None = None, unique: str | None = None) -> None:
         self.names = names or {}  # repère du mot de passe -> variable du fichier .env
+        self.unique = unique  # valeur de {unique} pendant l'exécution de l'agent : les phrases gardent {unique}
         self.secrets = False  # le scénario saisit un mot de passe, lu dans le fichier .env
         self.sentences: list[tuple[str, str]] = []  # (Étant donné que | Quand | Alors | Et, phrase)
         self.keywords: dict[str, list[str]] = {}  # nom du mot-clé -> lignes
         self.blocks: list[str] = []  # mots-clés de vérification de codegen_robot
         self._last: str | None = None
+
+    def quote(self, value: str) -> str:
+        """Valeur entre guillemets pour une phrase : la valeur unique de l'agent redevient {unique}."""
+        return _quote(masquer(str(value), self.unique))
+
+    @property
+    def uses_unique(self) -> bool:
+        return any(UNIQUE in sentence for _, sentence in self.sentences)
+
+    def resolve_unique(self) -> None:
+        """Les mots-clés dont une phrase contient {unique} le remplacent par ${UNIQUE}, nouveau à chaque lancement."""
+        sentences = [sentence for _, sentence in self.sentences if UNIQUE in sentence]
+        for name, lines in self.keywords.items():
+            arguments = [match.group(1) for match in _EMBEDDED.finditer(name) if not match.group(2)]
+            if not arguments or not any(_keyword_pattern(name).fullmatch(sentence) for sentence in sentences):
+                continue
+            self.keywords[name] = [f'${{{arg}}}=    Evaluate    ${arg}.replace("{UNIQUE}", $UNIQUE)'
+                                   for arg in arguments] + lines
 
     @property
     def last(self) -> str | None:
@@ -218,8 +259,16 @@ class _Scenario:
 
 
 def _build(run: RunResult) -> _Scenario:
-    scenario, names, frames = _Scenario(env_names(run)), _Names(), _Frames()
+    scenario, names, frames = _Scenario(env_names(run), getattr(run, "unique", None)), _Names(), _Frames()
     opened = False
+
+    def open_page(url: str) -> None:
+        nonlocal opened
+        scenario.common("open", "contexte", f"je suis sur la page {scenario.quote(url)}")
+        if run.case.session:  # déjà connecté : la session enregistrée par un autre scénario
+            scenario.common("session_load", "contexte", f"je reprends la session {_quote(run.case.session)}")
+        opened = True
+
     for step in run.steps:
         action, result = step.action, step.result
         if action is None or not result.ok:
@@ -227,32 +276,40 @@ def _build(run: RunResult) -> _Scenario:
         args = action.args
         if action.name == "goto":
             if opened:
-                scenario.common("goto", "action", f"je vais sur la page {_quote(args['url'])}")
+                scenario.common("goto", "action", f"je vais sur la page {scenario.quote(args['url'])}")
             else:
-                scenario.common("open", "contexte", f"je suis sur la page {_quote(args['url'])}")
-                opened = True
+                open_page(args["url"])
         else:
             if not opened:  # le navigateur doit être ouvert avant toute autre étape
-                scenario.common("open", "contexte", f"je suis sur la page {_quote(run.case.url)}")
-                opened = True
+                open_page(run.case.url)
             _action_step(scenario, names, frames, action, result)
         if result.dialog is not None:  # fenêtre JavaScript ouverte par l'étape
             _dialog_step(scenario, result.dialog)
         if result.opened_tab:  # l'étape a ouvert un nouvel onglet : le scénario y passe, comme l'agent
             scenario.common("new_tab", "action", "je passe sur le nouvel onglet")
+    if getattr(run, "session_saved", None) is not None and run.case.save_session:  # pour les scénarios déjà connectés
+        scenario.common("session_save", "action", f"j'enregistre la session {_quote(run.case.save_session)}")
     if scenario.secrets:  # mots de passe : lus dans le fichier .env avant le scénario
         scenario.blocks.append(_SECRETS)
     opening = 'je suis sur la page "${url}"'
     if run.closed_shadow and opening in scenario.keywords:  # composants web fermés : ouverts avant d'agir
         scenario.keywords[opening] = scenario.keywords[opening] + ["Ouvrir les composants fermés"]
         scenario.blocks.append(_CLOSED)
+    if getattr(run, "ads_blocked", 0) and opening in scenario.keywords:  # pas de publicité plein écran
+        scenario.keywords[opening] = scenario.keywords[opening] + ["Bloquer les publicités"]
+        scenario.blocks.append(_ADS)
+    if open_block(run) != _OPEN:  # appareil émulé : « Ouvrir le navigateur » sans taille de fenêtre
+        scenario.blocks = [open_block(run) if block == _OPEN else block for block in scenario.blocks]
+    if scenario.uses_unique:  # {unique} : une valeur nouvelle à chaque lancement
+        scenario.resolve_unique()
+        scenario.blocks.append(_UNIQUE)
     return scenario
 
 
 def _dialog_step(scenario: _Scenario, dialog: dict) -> None:
-    message = _quote(_clean(dialog["message"]))
+    message = scenario.quote(_clean(dialog["message"]))
     if dialog["accepted"] and dialog.get("text") is not None:
-        scenario.common("prompt", "action", f"je réponds {_quote(dialog['text'])} à la fenêtre {message}")
+        scenario.common("prompt", "action", f"je réponds {scenario.quote(dialog['text'])} à la fenêtre {message}")
     elif dialog["accepted"]:
         scenario.common("accept", "action", f"j'accepte la fenêtre {message}")
     else:
@@ -264,6 +321,11 @@ def _action_step(scenario: _Scenario, names: _Names, frames: _Frames, action, re
     args = action.args
     if action.name == "cookies":  # bandeau accepté par le programme : le scénario l'accepte s'il s'affiche
         lines = [f"Accepter le bandeau de cookies    {robot_arg(args['robot'])}"]
+        if args.get("cadre"):  # dans un cadre de consentement (iframe)
+            lines = [f"Accepter le bandeau de cookies du cadre    {robot_arg(frame_locator(args['cadre'][-1]))}    "
+                     f"{robot_arg(args['robot'])}"]
+            if _COOKIES_FRAME not in scenario.blocks:
+                scenario.blocks.append(_COOKIES_FRAME)
         sentence = "j'accepte le bandeau de cookies"
         if scenario.keywords.get(sentence, lines) != lines:  # un second bandeau, différent (rare)
             sentence += f" {_quote(_safe(args['bouton']))}"
@@ -289,30 +351,39 @@ def _action_step(scenario: _Scenario, names: _Names, frames: _Frames, action, re
                             _in_frame(result.frame, ["Wait Until Keyword Succeeds    ${secondes}s    500ms    "
                                                      "Le texte visible contient    ${texte}"]), _SHOWS)
             scenario.add("action", f"j'attends jusqu'à {args['seconds']} secondes que le cadre \"{frame}\" affiche "
-                                   f"{_quote(result.value or args['text'])}")
+                                   f"{scenario.quote(result.value or args['text'])}")
         else:
             scenario.common("wait", "action", f"j'attends jusqu'à {args['seconds']} secondes que la page affiche "
-                                              f"{_quote(result.value or args['text'])}")
+                                              f"{scenario.quote(result.value or args['text'])}")
     elif action.name == "check_text":
-        if args.get("absent"):
-            scenario.common("hides", "résultat", f"la page n'affiche pas {_quote(args['text'])}")
+        checked = getattr(result, "frames_checked", None) or []
+        if args.get("absent") and checked:  # ni dans la page, ni dans ses cadres : comme l'agent
+            names = [f'"{frames.get(frame)}"' for frame in checked]
+            where = f"le cadre {names[0]}" if len(names) == 1 else f"les cadres {', '.join(names[:-1])} et {names[-1]}"
+            lines = ["La page n'affiche pas    ${texte}"]
+            for frame in checked:
+                lines += _in_frame(frame, ["La page n'affiche pas    ${texte}"])
+            scenario.define(f'la page et {where} n\'affichent pas "${{texte}}"', lines, _HIDES)
+            scenario.add("résultat", f"la page et {where} n'affichent pas {scenario.quote(args['text'])}")
+        elif args.get("absent"):
+            scenario.common("hides", "résultat", f"la page n'affiche pas {scenario.quote(args['text'])}")
         elif result.frame:  # texte trouvé dans un cadre
             frame = frames.get(result.frame)
             scenario.define(f'le cadre "{frame}" affiche "${{texte}}"', _in_frame(result.frame, ["La page affiche    ${texte}"]),
                             _SHOWS)
-            scenario.add("résultat", f"le cadre \"{frame}\" affiche {_quote(result.value or args['text'])}")
+            scenario.add("résultat", f"le cadre \"{frame}\" affiche {scenario.quote(result.value or args['text'])}")
         else:
-            scenario.common("shows", "résultat", f"la page affiche {_quote(result.value or args['text'])}")
+            scenario.common("shows", "résultat", f"la page affiche {scenario.quote(result.value or args['text'])}")
     elif action.name == "check_url":
         kind, verb = ("no_url", "ne contient pas") if args.get("absent") else ("url", "contient")
-        scenario.common(kind, "résultat", f"l'URL {verb} {_quote(args['contains'])}")
+        scenario.common(kind, "résultat", f"l'URL {verb} {scenario.quote(args['contains'])}")
     elif action.name == "check_order":
-        texts = [_quote(text) for text in args["texts"]]
+        texts = [scenario.quote(text) for text in args["texts"]]
         scenario.common("order", "résultat", f"la page affiche dans cet ordre : {', '.join(texts[:-1])} et {texts[-1]}")
     elif action.name == "check_count":
-        scenario.common("count", "résultat", f"la page affiche {args['count']} fois {_quote(args['text'])}")
+        scenario.common("count", "résultat", f"la page affiche {args['count']} fois {scenario.quote(args['text'])}")
     elif action.name == "check_visual":
-        scenario.common("visual", "résultat", f"l'écran montre {_quote(args['expected'])}")
+        scenario.common("visual", "résultat", f"l'écran montre {scenario.quote(args['expected'])}")
     else:
         _element_step(scenario, names, action, result)
 
@@ -354,7 +425,7 @@ def _element_step(scenario: _Scenario, names: _Names, action, result) -> None:
         scenario.add("action", sentence)
     elif action.name == "upload":  # le fichier est copié à côté du test
         define(f'je joins le fichier "${{fichier}}" {au(name)}', [f"Choose File    {locator}    ${{CURDIR}}${{/}}${{fichier}}"])
-        scenario.add("action", f"je joins le fichier {_quote(args['file'])} {au(name)}")
+        scenario.add("action", f"je joins le fichier {scenario.quote(args['file'])} {au(name)}")
     elif action.name == "drag" and result.target is not None:
         target_name, _ = names.get(result.target)
         target = robot_arg(robot_locator(result.target))
@@ -375,19 +446,20 @@ def _element_step(scenario: _Scenario, names: _Names, action, result) -> None:
             scenario.add("action", f'je saisis le mot de passe "{parts[0][1]}" dans {name}')
         elif any(is_secret for is_secret, _ in parts):  # un mot de passe dans un texte : mot-clé sans argument
             scenario.secrets = True
-            sentence = f"je saisis {_quote(args['text'])} dans {name}"
-            define(sentence, click + [f"Input Password    {locator}    {secret_cell(args['text'], scenario.names)}"])
+            sentence = f"je saisis {scenario.quote(args['text'])} dans {name}"
+            define(sentence, click + [f"Input Password    {locator}    "
+                                      f"{secret_cell(args['text'], scenario.names, scenario.unique)}"])
             scenario.add("action", sentence)
         else:
             define(f'je saisis "${{texte}}" dans {name}', click + [f"{typing_keyword(element)}    {locator}    ${{texte}}"])
-            scenario.add("action", f"je saisis {_quote(args['text'])} dans {name}")
+            scenario.add("action", f"je saisis {scenario.quote(args['text'])} dans {name}")
     elif action.name == "select":
         # Libellé (« Prix croissant ») ou valeur (« price ») : les deux sont acceptés, comme pour l'agent
         define(f'je choisis "${{option}}" dans {name}', [
             f"${{par_libelle}}=    Run Keyword And Return Status    Select From List By Label    {locator}    ${{option}}",
             f"IF    not ${{par_libelle}}    Select From List By Value    {locator}    ${{option}}",
         ])
-        scenario.add("action", f"je choisis {_quote(args['value'])} dans {name}")
+        scenario.add("action", f"je choisis {scenario.quote(args['value'])} dans {name}")
     elif action.name == "check_value":
         regex = bool(args.get("regex"))
         keyword, block = value_keyword(element, regex)
@@ -402,7 +474,7 @@ def _element_step(scenario: _Scenario, names: _Names, action, result) -> None:
         else:
             verb = "indique" if element.tag == "select" else "contient"
             define(f'{name} {verb} "${{valeur}}"', [f"{wait}{keyword}    {locator}    ${{valeur}}"], block)
-            scenario.add("résultat", f"{name} {verb} {_quote(args['value'])}")
+            scenario.add("résultat", f"{name} {verb} {scenario.quote(args['value'])}")
     elif action.name == "check_state":
         state = args["state"]
         sentence = f"{name} est {_FEMININE[state] if feminine else STATE_LABELS[state]}"
@@ -419,9 +491,11 @@ def generate_feature(run: RunResult) -> str:
         "# language: fr",
         "# Scénario généré automatiquement par agent-qa-playwright, à partir des actions réussies de l'agent.",
         f"# Version exécutable avec Robot Framework : robot {bdd_filename(run)}",
-        f"Fonctionnalité: {_clean(run.case.title)}",
-        "",
     ]
+    if scenario.uses_unique:
+        lines.append("# {unique} : une valeur nouvelle à chaque lancement (date et heure), pour créer des données "
+                     "qui n'existent pas encore.")
+    lines += [f"Fonctionnalité: {_clean(run.case.title)}", ""]
     if match:
         lines.append(f"  @{match.group(1).upper()}")
     lines.append(f"  Scénario: {_clean(run.case.title)}")
@@ -438,8 +512,9 @@ def generate_bdd_robot(run: RunResult) -> str:
     code = _HEADER.format(
         title=_cell(_clean(run.case.title)),
         feature=feature_filename(run),
-        variables=VARIABLES + (CLOSED_VARIABLE if run.closed_shadow else ""),
-        setup=SECRETS_SETUP if scenario.secrets else "",
+        variables=robot_variables(run) + (CLOSED_VARIABLE if run.closed_shadow else "") + (
+            ADS_VARIABLE if getattr(run, "ads_blocked", 0) else ""),
+        setup=(SECRETS_SETUP if scenario.secrets else "") + (UNIQUE_SETUP if scenario.uses_unique else ""),
         name=_cell(_clean(run.case.title)),
         body="\n".join(body) or f"{SEP}No Operation",
     )

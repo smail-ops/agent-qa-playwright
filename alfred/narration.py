@@ -286,6 +286,57 @@ def _cut(text: str) -> str:
     return text if len(text) <= MAX_SPOKEN else text[: MAX_SPOKEN - 1].rsplit(" ", 1)[0] + "…"
 
 
+# --- Relance des tests en échec : plusieurs missions à la suite ------------------------------
+
+
+def _code(title: str) -> str:
+    """« CT-20 Formulaire de contact » donne « CT-20 » ; un titre sans code reste entier."""
+    first = title.split()[0] if title.split() else title
+    return first if any(ch.isdigit() for ch in first) and "-" in first else title
+
+
+def _liste(items: list[str]) -> str:
+    """« CT-04 », « CT-04 et CT-14 », « CT-04, CT-14 et CT-20 »."""
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " et " + items[-1]
+
+
+def relaunch_speech(titles: list[str], skipped: int = 0) -> str:
+    """Annonce de la relance : combien de tests, lesquels."""
+    codes = [_code(title) for title in titles]
+    shown = codes if len(codes) <= 5 else codes[:5] + [f"{len(codes) - 5} autres"]
+    text = (f"Je relance le test en échec : {codes[0]}." if len(codes) == 1
+            else f"Je relance les {len(codes)} tests en échec, l'un après l'autre : {_liste(shown)}.")
+    if skipped:
+        text += f" {skipped} autre{'s' if skipped > 1 else ''} n'{'ont' if skipped > 1 else 'a'} pas de démo sans IA."
+    return text
+
+
+def nothing_to_relaunch_speech() -> str:
+    return "Aucun test en échec dans les derniers résultats : il n'y a rien à relancer."
+
+
+def series_start_speech(position: int, total: int) -> str:
+    return f"Test {position} sur {total}."
+
+
+def series_next_speech(position: int, total: int) -> str:
+    return f"Je passe au test suivant, {position} sur {total}."
+
+
+def series_done_speech(results: list[tuple[str, str]], total: int, stopped: bool = False) -> str:
+    """Bilan de la relance : réussis, et ceux qui échouent encore."""
+    passed = sum(1 for _, status in results if status == "PASS")
+    still = [_code(title) for title, status in results if status != "PASS"]
+    if stopped and len(results) < total:
+        text = f"Relance arrêtée après {len(results)} test{'s' if len(results) > 1 else ''} sur {total}."
+    else:
+        text = "Relance terminée."
+    text += f" {passed} réussi{'s' if passed > 1 else ''} sur {len(results)}."
+    if still:
+        text += f" Toujours en échec : {_liste(still[:5])}." if len(still) <= 5 else f" {len(still)} échouent encore."
+    return _cut(text)
+
+
 # --- Propositions : user stories et cas de test -------------------------------------------
 
 

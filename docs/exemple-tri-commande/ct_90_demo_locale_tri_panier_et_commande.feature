@@ -7,7 +7,7 @@ Fonctionnalité: CT-90 Démo locale : tri, panier et commande
   Scénario: CT-90 Démo locale : tri, panier et commande
     Étant donné que je suis sur la page "http://localhost:8000/index.html"
     Quand je saisis "standard_user" dans le champ "Identifiant"
-    Et je saisis "secret_sauce" dans le champ "Mot de passe"
+    Et je saisis le mot de passe "MOT_DE_PASSE_LOCALHOST" dans le champ "Mot de passe"
     Et je clique sur le bouton "Connexion"
     Alors la page affiche 3 fois "Ajouter au panier"
     Quand je choisis "Prix croissant" dans la liste "Trier"

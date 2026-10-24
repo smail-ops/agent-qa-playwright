@@ -26,6 +26,7 @@ def summary(run: RunResult) -> dict:
     files = {
         "rapport": run.report_path, "pytest": run.script_path, "robot": run.robot_path,
         "gherkin": run.feature_path, "robot_bdd": run.bdd_path, "anomalie": run.anomaly_path,
+        "postman": run.postman_path, "postman_environnement": run.postman_env_path,
     }
     return {
         "version": VERSION,
@@ -39,6 +40,10 @@ def summary(run: RunResult) -> dict:
         "appels_modele": run.model_calls,
         "etapes_rejouees_depuis_la_memoire": run.memory_replayed,
         "vision": run.vision,
+        "navigateur": run.navigateur,
+        "appareil": run.appareil,
+        "valeur_unique": run.unique,
+        "interruption": run.interruption,  # quota_jour, quota, modele, arret, session : à relancer, pas un verdict
         "verifications_reussies": sum(1 for step in run.checks if step.result.check),
         "verifications_echouees": [step.result.detail for step in run.checks if step.result.check is False],
         "diagnostic": run.diagnosis,
