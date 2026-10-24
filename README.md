@@ -461,7 +461,7 @@ Pour rejouer le script pytest :
 pytest rapports/<dossier>/test_<cas_de_test>.py
 ```
 
-Le test désigne les éléments comme le recommande Playwright : par leur rôle et leur nom (`get_by_role('button', name='Login')`), leur libellé ou leur texte d'aide, quand ce localisateur trouve exactement l'élément pendant l'exécution de l'agent ; sinon, il garde le sélecteur CSS. `--browser firefox` ou `--browser webkit` le rejoue avec un autre navigateur.
+Le test désigne les éléments comme le recommande Playwright : par leur rôle et leur nom (`get_by_role('button', name='Login')`), leur libellé ou leur texte d'aide, quand ce localisateur trouve exactement l'élément pendant l'exécution de l'agent ; sinon, il garde le sélecteur CSS. Parmi des éléments semblables, un attribut de test (`data-test`) passe avant le rang de l'élément, qui change quand la liste est rechargée. `--browser firefox` ou `--browser webkit` le rejoue avec un autre navigateur.
 
 ### Rejouer avec Robot Framework
 
@@ -480,6 +480,7 @@ Le générateur adapte le parcours à Selenium :
 - les sélecteurs propres à Playwright (`:has-text`, plusieurs éléments identiques) deviennent des XPath ;
 - le texte attendu est écrit tel qu'il apparaît sur la page, et pour une liste déroulante c'est la valeur réelle de l'option qui est utilisée ;
 - les vérifications de texte passent par des mots-clés écrits dans le fichier (`La page affiche`, `La page n'affiche pas`, `La page affiche dans l'ordre`, `La page affiche ce nombre de fois`). Comme l'agent, ils ne regardent que le texte visible. `Wait Until Page Contains` compterait aussi un message d'erreur caché dans la page, et le test passerait à tort ;
+- un clic passe par le mot-clé `Cliquer`, écrit dans le fichier : si la page remplace l'élément au moment du clic (une liste rechargée par l'API, une application monopage), Selenium lève `StaleElementReferenceException`, et le clic est retenté avec l'élément cherché de nouveau, comme Playwright le fait de lui-même ;
 - le navigateur s'ouvre avec le mot-clé `Ouvrir le navigateur`, lui aussi écrit dans le fichier. Avec Chrome, il coupe le gestionnaire de mots de passe (variable `${OPTIONS_CHROME}`) : sinon, après une connexion avec un mot de passe connu des fuites de données, comme `secret_sauce`, Chrome affiche une alerte « mot de passe compromis » qui interrompt le test.
 
 Exemple : [`docs/exemple-demo/ct_00_demo_locale_connexion_et_panier.robot`](docs/exemple-demo/ct_00_demo_locale_connexion_et_panier.robot).
@@ -587,7 +588,7 @@ La commande prépare l'import des cas de test dans Squash TM : un fichier Excel,
 
 ## Tests du projet
 
-Les 512 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
+Les 514 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
 
 ```bash
 pytest
@@ -597,7 +598,7 @@ Ils couvrent la lecture des cas de test (Markdown et Gherkin) et des réponses d
 
 Les tests d'Alfred vérifient l'API, le flux en direct, l'arrêt d'une mission, la mémoire, l'annonce du diagnostic, les propositions, la conversation libre (contexte envoyé au modèle, actions contrôlées, mot de passe jamais prononcé, réponses tirées de la documentation et liens affichés), les protections du serveur et la compréhension des commandes vocales, puis pilotent dans l'interface des missions complètes, une analyse de site et un cas de test dicté puis lancé sur « vas-y ».
 
-GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des dix démos avec le vrai SeleniumLibrary et Chrome : cadre sélectionné avec `Select Frame`, composant web atteint par un localisateur `dom:`, fenêtre traitée par `Handle Alert`, bandeau de cookies accepté par « Accepter le bandeau de cookies », touches envoyées par `Press Keys`, survol par `Mouse Over`, nouvel onglet suivi par `Switch Window`, fichier joint par `Choose File`, glisser-déposer HTML5 envoyé en JavaScript (Selenium ne sait pas le faire à la souris) composant fermé ouvert par une commande de Chrome, publicités bloquées par une autre, session reprise par ses cookies et bandeau d'un cadre accepté après `Select Frame`. Si un test Robot échoue, son nom et son message s'affichent sur la page du run, lisibles sans être connecté à GitHub. Le double de SeleniumLibrary répond OK à toutes les fenêtres : la réponse Annuler et la saisie dans une fenêtre ne sont vérifiées qu'avec le vrai SeleniumLibrary.
+GitHub Actions lance ces tests à chaque push, puis rejoue les tests Robot (classiques et Gherkin) des dix démos avec le vrai SeleniumLibrary et Chrome : cadre sélectionné avec `Select Frame`, composant web atteint par un localisateur `dom:`, fenêtre traitée par `Handle Alert`, bandeau de cookies accepté par « Accepter le bandeau de cookies », touches envoyées par `Press Keys`, survol par `Mouse Over`, nouvel onglet suivi par `Switch Window`, fichier joint par `Choose File`, glisser-déposer HTML5 envoyé en JavaScript (Selenium ne sait pas le faire à la souris), composant fermé ouvert par une commande de Chrome, publicités bloquées par une autre, session reprise par ses cookies et bandeau d'un cadre accepté après `Select Frame`. Si un test échoue (pytest, Robot Framework, Newman, ou une démo de l'agent), son nom et son message s'affichent sur la page du run, lisibles sans être connecté à GitHub. Le double de SeleniumLibrary répond OK à toutes les fenêtres : la réponse Annuler et la saisie dans une fenêtre ne sont vérifiées qu'avec le vrai SeleniumLibrary.
 
 Deux autres jobs complètent la vérification : la collection Postman de la démo CT-97 est rejouée avec Newman (les requêtes en échec s'affichent sur la page du run), et les démos sont lancées avec Firefox, WebKit et un iPhone émulé, avant de rejouer leurs tests pytest avec le même navigateur.
 
@@ -636,6 +637,8 @@ Deux autres jobs complètent la vérification : la collection Postman de la dém
 | `tests/robot_double/` | double de SeleniumLibrary piloté par Playwright, pour tester les fichiers `.robot` sans Chrome |
 | `tests/newman_double.mjs` | rejoue une collection Postman avec Node.js, sans Newman, pour les tests du projet |
 | `.github/robot_echecs.py` | dans GitHub Actions, affiche les tests Robot en échec sur la page du run |
+| `.github/pytest_echecs.py` | dans GitHub Actions, affiche les tests pytest en échec sur la page du run |
+| `.github/agent_echecs.py` | dans GitHub Actions, affiche les démos de l'agent qui n'ont pas réussi sur la page du run |
 | `.github/newman_echecs.py` | dans GitHub Actions, affiche les requêtes Postman en échec sur la page du run |
 | `demo_site/` | boutique de démonstration : connexion, produits, tri, formulaire de commande, un atelier (iframe, Shadow DOM, listes maison, fenêtre de confirmation, chargement lent), un bandeau de cookies, deux pages d'actions (clavier, souris, onglets, fichier, glisser-déposer, composant fermé), un compte à créer et son espace client, un catalogue chargé par une API, et des offres sous un bandeau de cookies dans un cadre |
 | `donnees_de_test/` | les fichiers que l'agent peut joindre à un formulaire (action upload) |

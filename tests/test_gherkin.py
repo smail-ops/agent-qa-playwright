@@ -48,7 +48,7 @@ def test_gherkin_execute_par_robot(pw_page, demo_url, tmp_path):
     assert code.startswith("language: fr\n")
     assert '    Quand je saisis "standard_user" dans le champ "Identifiant"' in code
     assert 'je saisis "${texte}" dans le champ "Identifiant"\n    Input Text    css:#user-name    ${texte}' in code
-    assert 'je clique sur le bouton "Connexion"\n    Click Element    css:[data-test="login-button"]' in code
+    assert 'je clique sur le bouton "Connexion"\n    Cliquer    css:[data-test="login-button"]' in code
     assert code.count('je saisis "${texte}" dans le champ "Identifiant"\n') == 1  # chaque mot-clé une seule fois
     assert 'je suis sur la page "${url}"\n    Ouvrir le navigateur    ${url}' in code
     assert code.count("\nOuvrir le navigateur\n") == 1 and "${OPTIONS_CHROME}    add_experimental_option(" in code

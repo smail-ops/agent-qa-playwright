@@ -88,17 +88,17 @@ def test_test_robot(run91, tmp_path):
     Wait Until Keyword Succeeds    ${{DELAI}}    200ms    Le texte de l'élément est    css:#note    Livrer avant midi
     Unselect Frame
     Wait Until Page Contains Element    {SHADOW}('#generer')
-    Click Element    {SHADOW}('#generer')
+    Cliquer    {SHADOW}('#generer')
     Wait Until Keyword Succeeds    ${{DELAI}}    200ms    La valeur correspond au motif    {SHADOW}('#code')    ^PROMO-[0-9A-F]{{4}}-[0-9A-F]{{4}}$
     La page affiche    Code prêt à copier
-    Click Element    xpath:{ROLE[6:]}
-    Click Element    xpath://div[@role="option"][contains(normalize-space(.), "ESS")]
+    Cliquer    xpath:{ROLE[6:]}
+    Cliquer    xpath://div[@role="option"][contains(normalize-space(.), "ESS")]
     Wait Until Keyword Succeeds    ${{DELAI}}    200ms    Le texte de l'élément est    xpath:{ROLE[6:]}    ESS
     La page affiche    Rôle : ESS
-    Click Element    css:[data-test="envoyer"]
+    Cliquer    css:[data-test="envoyer"]
     Accepter la fenêtre    Confirmer l'envoi de la commande ?
     La page affiche    Commande envoyée
-    Click Element    css:[data-test="charger"]
+    Cliquer    css:[data-test="charger"]
     Wait Until Keyword Succeeds    10s    500ms    Le texte visible contient    Stock chargé
     La page affiche    Stock chargé : 12 articles
 """
@@ -156,7 +156,7 @@ def test_fenetre_refusee_dans_les_tests_generes(pw_page, pw_browser, demo_url, t
     exec(compile(code, "test_genere.py", "exec"), namespace)
     run_on_new_page(pw_browser, namespace[f"test_{run.case.slug}"])
     robot = generate_robot(run)
-    assert "    Click Element    css:[data-test=\"envoyer\"]\n    Refuser la fenêtre    Confirmer l'envoi de la commande ?\n" in robot
+    assert "    Cliquer    css:[data-test=\"envoyer\"]\n    Refuser la fenêtre    Confirmer l'envoi de la commande ?\n" in robot
     assert "${affiche}=    Handle Alert    DISMISS" in robot
     assert "Et je refuse la fenêtre \"Confirmer l'envoi de la commande ?\"" in generate_feature(run)
 

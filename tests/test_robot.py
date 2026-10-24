@@ -89,10 +89,11 @@ def test_test_robot_genere(pw_page, demo_url, tmp_path):
     assert f"    Ouvrir le navigateur    {demo_url}/index.html\n    Input Text    css:#user-name    standard_user" in code
     assert code.count("\nOuvrir le navigateur\n") == 1 and "    Set Window Size    1280    800\n" in code
     assert "    Input Text    css:#user-name    standard_user" in code
-    assert '    Click Element    css:[data-test="login-button"]' in code
+    assert '    Cliquer    css:[data-test="login-button"]' in code
+    assert code.count("\nCliquer\n") == 1  # le mot-clé, écrit une fois dans le fichier
     assert "    Wait Until Location Contains    inventory" in code
     assert "    La page affiche    Produits" in code  # casse exacte relevée sur la page
-    assert '    Click Element    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]' in code
+    assert '    Cliquer    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]' in code
     assert '    Select From List By Value    css:[data-test="sort"]    price' in code  # valeur réelle de l'option
     assert "    La page n'affiche pas    Paiement validé" in code
     assert "Wait Until Page Contains" not in code  # compterait aussi le texte caché

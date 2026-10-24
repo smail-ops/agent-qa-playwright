@@ -52,7 +52,7 @@ la zone de texte "Note de commande" contient "${valeur}"
 
 je clique sur le bouton "Générer un code"
     Wait Until Page Contains Element    dom:document.querySelector('generateur-code').shadowRoot.querySelector('#generer')
-    Click Element    dom:document.querySelector('generateur-code').shadowRoot.querySelector('#generer')
+    Cliquer    dom:document.querySelector('generateur-code').shadowRoot.querySelector('#generer')
 
 le champ "Code promo" correspond au motif "${motif}"
     Wait Until Keyword Succeeds    ${DELAI}    200ms    La valeur correspond au motif    dom:document.querySelector('generateur-code').shadowRoot.querySelector('#code')    ${motif}
@@ -61,22 +61,22 @@ la page affiche "${texte}"
     La page affiche    ${texte}
 
 je clique sur le champ "Rôle"
-    Click Element    xpath://label[normalize-space(.)="Rôle"]/following::div[@tabindex][1]
+    Cliquer    xpath://label[normalize-space(.)="Rôle"]/following::div[@tabindex][1]
 
 je clique sur l'option "ESS"
-    Click Element    xpath://div[@role="option"][contains(normalize-space(.), "ESS")]
+    Cliquer    xpath://div[@role="option"][contains(normalize-space(.), "ESS")]
 
 le champ "Rôle" contient "${valeur}"
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Le texte de l'élément est    xpath://label[normalize-space(.)="Rôle"]/following::div[@tabindex][1]    ${valeur}
 
 je clique sur le bouton "Envoyer la commande"
-    Click Element    css:[data-test="envoyer"]
+    Cliquer    css:[data-test="envoyer"]
 
 j'accepte la fenêtre "${message}"
     Accepter la fenêtre    ${message}
 
 je clique sur le bouton "Charger le stock"
-    Click Element    css:[data-test="charger"]
+    Cliquer    css:[data-test="charger"]
 
 j'attends jusqu'à ${secondes:\d+} secondes que la page affiche "${texte}"
     Wait Until Keyword Succeeds    ${secondes}s    500ms    Le texte visible contient    ${texte}
@@ -101,6 +101,13 @@ Le texte de l'élément est
     ${texte}=    Get Text    ${localisateur}
     Should Be Equal    ${texte}    ${attendu}    msg=L'élément affiche « ${texte} » au lieu de « ${attendu} ».    values=False
     ...    strip_spaces=True    collapse_spaces=True
+
+Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 
 La valeur correspond au motif
     [Documentation]    La valeur du champ suit le motif (expression régulière) : un code généré, une date...

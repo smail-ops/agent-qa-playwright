@@ -860,11 +860,18 @@ def _candidates(element: Element) -> list[tuple[str, tuple, dict]]:
     return found
 
 
+def _stable(element: Element) -> bool:
+    """Le sélecteur CSS désigne déjà l'élément seul, par un attribut de test ou un id stable ([data-test="detail-2"])."""
+    return element.nth is None and (bool((element.attrs or {}).get("test_id")) or element.selector.startswith("#"))
+
+
 def recommend(scope, element: Element) -> str | None:
     """Le localisateur recommandé par Playwright qui désigne cet élément, vérifié dans la page, ou None.
 
     scope : la page, ou le cadre (iframe) qui contient l'élément. Les localisateurs get_by_* de
-    Playwright entrent seuls dans les composants web (Shadow DOM ouvert).
+    Playwright entrent seuls dans les composants web (Shadow DOM ouvert). Quand aucun ne le désigne seul,
+    le n-ième de la liste ne sert que si le sélecteur CSS n'est pas plus sûr : dans une liste rechargée
+    par l'API, le rang d'un bouton change, son attribut de test non.
     """
     ref = str(element.ref)
     fallback = None  # plusieurs éléments identiques : le n-ième, si rien ne le désigne seul
@@ -881,7 +888,7 @@ def recommend(scope, element: Element) -> str | None:
                     fallback = f"{_call(method, *args, **kwargs)}.nth({index})"
         except PlaywrightError:
             continue
-    return fallback
+    return None if _stable(element) else fallback
 
 
 def visible_text(page: Page) -> str:

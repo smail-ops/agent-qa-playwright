@@ -1,7 +1,7 @@
 [
   {"action": "fill", "target": "#recherche", "args": {"text": "lampe"}, "reason": "Étape 1 : saisie de la recherche"},
   {"action": "click", "target": "[data-test=\"rechercher\"]", "reason": "Étape 2 : lancement de la recherche"},
-  {"action": "check_text", "args": {"text": "Lampe de vélo"}, "reason": "Résultat attendu : la lampe est trouvée"},
+  {"action": "check_text", "args": {"text": "1 produit"}, "reason": "Résultat attendu : la recherche ne garde que la lampe"},
   {"action": "click", "target": "[data-test=\"detail-2\"]", "reason": "Étape 3 : détail de la Lampe de vélo"},
   {"action": "check_text", "args": {"text": "autonomie de 12 heures"}, "reason": "Résultat attendu : le détail du produit s'affiche"},
   {"action": "finish", "args": {"status": "PASS", "summary": "Recherche et détail chargés par l'API : les résultats attendus sont vérifiés."}, "reason": "Les résultats attendus sont vérifiés"}

@@ -190,7 +190,7 @@ def test_onglets_fichiers_dans_les_tests_generes(run94, pw_browser, tmp_path):
     replay_pytest(run94, pw_browser)
 
     robot = generate_robot(run94)
-    for line in ("Ouvrir les composants fermés", "Click Element    css:#lien-fiche\n    Switch Window    NEW",
+    for line in ("Ouvrir les composants fermés", "Cliquer    css:#lien-fiche\n    Switch Window    NEW",
                  "@{onglets}=    Get Window Handles\n    Switch Window    ${onglets}[0]",
                  "Choose File    css:#piece-jointe    ${CURDIR}${/}facture.txt", "Glisser-déposer    css:#carte    css:#termine"):
         assert f"    {line}\n" in robot, line

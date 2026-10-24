@@ -22,6 +22,7 @@ import re
 import time
 from urllib.parse import urlsplit
 
+import greenlet
 from playwright.sync_api import expect, sync_playwright
 from robot.api import logger
 from robot.utils import timestr_to_secs
@@ -59,14 +60,11 @@ class _Driver:
         return {"identifier": str(len(self._library._init_scripts))}
 
     def _outside_robot(self, call):
-        """Appelle Playwright depuis « Evaluate ». Pour nommer chaque appel, Playwright lit la pile d'appels, et l'espace
-        de noms de Robot, qui en fait partie, ne le supporte pas : on lui donne une zone d'appel déjà nommée."""
-        connection = self._library._page._impl_obj._connection
-        token = connection._api_zone.set({"frames": [], "apiName": "", "title": None})
-        try:
-            return call()
-        finally:
-            connection._api_zone.reset(token)
+        """Appelle Playwright depuis « Evaluate ». Pour nommer chaque appel, Playwright lit les variables locales de
+        chaque niveau de la pile d'appels, et l'espace de noms de Robot, qui en fait partie, refuse cette lecture
+        (NameError). L'appel part donc d'une pile neuve : celle d'un greenlet, qui ne remonte pas jusqu'à Robot.
+        Playwright, qui tourne lui-même sur des greenlets, revient à celui-ci quand la réponse arrive."""
+        return greenlet.greenlet(call).switch()
 
     def get_cookies(self) -> list[dict]:
         """Les cookies du navigateur, au format de Selenium (expiry au lieu d'expires)."""

@@ -11,9 +11,14 @@ Exemple de test produit :
     CT-01 Connexion avec un utilisateur valide
         Ouvrir le navigateur    https://www.saucedemo.com/
         Input Text    css:#user-name    standard_user
-        Click Element    css:[data-test="login-button"]
+        Cliquer    css:[data-test="login-button"]
         Wait Until Location Contains    inventory
         La page affiche    Products
+
+Un clic passe par le mot-clé « Cliquer », écrit dans le fichier : si la page
+remplace l'élément au moment du clic (une liste rechargée par l'API, une
+application monopage), Selenium lève StaleElementReferenceException, et le clic
+est retenté avec l'élément cherché de nouveau.
 
 Les vérifications de texte passent par des mots-clés écrits dans le fichier :
 « La page affiche », « La page n'affiche pas », « La page affiche dans l'ordre »
@@ -258,6 +263,16 @@ _VISIBLE = """Texte visible de la page
     ...    visiter(el.shadowRoot); } });
     ...    visiter(document); return parts.join(' ');
     RETURN    ${texte}
+"""
+
+# Un clic : si la page remplace l'élément au moment du clic, Selenium ne le retrouve plus. Playwright, lui, cherche
+# l'élément à chaque action : le test Robot fait de même en retentant le clic.
+_CLICK = """Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 """
 
 _SHOWS = """La page affiche
@@ -680,8 +695,10 @@ def _step_lines(action, result, lines: list[str], enter, need, names: dict | Non
         need(_COOKIES)
     elif action.name == "click":
         keyword = "Double Click Element" if args.get("double") else \
-            "Open Context Menu" if args.get("button") == "right" else "Click Element"
+            "Open Context Menu" if args.get("button") == "right" else "Cliquer"
         lines.append(_keyword(keyword, robot_arg(robot_locator(element))))
+        if keyword == "Cliquer":
+            need(_CLICK)
         if result.opened_tab:  # le lien ouvre un nouvel onglet : le test y passe, comme l'agent
             lines.append(_keyword("Switch Window", "NEW"))
     elif action.name == "press":

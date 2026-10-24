@@ -7,5 +7,5 @@ URL : http://localhost:8000/catalogue.html
 3. Cliquer sur « Voir le détail » de la Lampe de vélo
 
 ## Résultats attendus
-- « Lampe de vélo » s'affiche
-- « autonomie de 12 heures » s'affiche
+- La recherche affiche « 1 produit »
+- Le détail de la Lampe de vélo affiche « autonomie de 12 heures »

@@ -19,15 +19,15 @@ CT-90 Démo locale : tri, panier et commande
     Ouvrir le navigateur    http://localhost:8000/index.html
     Input Text    css:#user-name    standard_user
     Input Password    css:#password    %{MOT_DE_PASSE_LOCALHOST}
-    Click Element    css:[data-test="login-button"]
+    Cliquer    css:[data-test="login-button"]
     La page affiche ce nombre de fois    Ajouter au panier    3
     Select From List By Value    css:[data-test="sort"]    price
     La page affiche dans l'ordre    Lampe de vélo    T-shirt    Sac à dos
-    Click Element    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
+    Cliquer    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
     La page affiche ce nombre de fois    Retirer    1
-    Click Element    css:[data-test="checkout"]
+    Cliquer    css:[data-test="checkout"]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Element Should Be Disabled    css:[data-test="continuer"]
-    Click Element    css:[data-test="cgu"]
+    Cliquer    css:[data-test="cgu"]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Checkbox Should Be Selected    css:[data-test="cgu"]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Element Should Be Enabled    css:[data-test="continuer"]
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Textfield Value Should Be    css:#code-postal    ${EMPTY}
@@ -46,6 +46,13 @@ Ouvrir le navigateur
         Open Browser    ${url}    ${BROWSER}
     END
     Set Window Size    1280    800
+
+Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 
 La page affiche ce nombre de fois
     [Documentation]    Attend que le texte soit affiché exactement ce nombre de fois.

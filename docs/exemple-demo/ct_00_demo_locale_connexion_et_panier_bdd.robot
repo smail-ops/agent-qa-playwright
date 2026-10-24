@@ -39,7 +39,7 @@ je saisis le mot de passe "${variable}" dans le champ "Mot de passe"
     Input Password    css:#password    %{${variable}}
 
 je clique sur le bouton "Connexion"
-    Click Element    css:[data-test="login-button"]
+    Cliquer    css:[data-test="login-button"]
 
 l'URL contient "${texte}"
     Wait Until Location Contains    ${texte}
@@ -48,7 +48,7 @@ la page affiche "${texte}"
     La page affiche    ${texte}
 
 je clique sur le bouton "Ajouter au panier" n°1
-    Click Element    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
+    Cliquer    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
 
 Ouvrir le navigateur
     [Documentation]    Ouvre le navigateur sur la page, à la taille de la fenêtre de l'agent.
@@ -63,6 +63,13 @@ Ouvrir le navigateur
         Open Browser    ${url}    ${BROWSER}
     END
     Set Window Size    1280    800
+
+Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 
 La page affiche
     [Documentation]    Attend que le texte soit affiché. La casse et les espaces ne comptent pas, comme pour l'agent.

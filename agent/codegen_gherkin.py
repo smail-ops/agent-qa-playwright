@@ -33,11 +33,10 @@ import re
 from typing import TYPE_CHECKING
 
 from .actions import STATE_LABELS, au, jusqua, key_label
-from .codegen_robot import (_ADS, _ALERTS, _CLOSED, _COOKIES, _COOKIES_FRAME, _COUNT, _DRAG, _HIDES, _OPEN, _ORDER, _SECRETS, _SESSION_LOAD,
-                            _SESSION_SAVE, _SHOWS, _UNIQUE, _VISIBLE, ADS_VARIABLE, CLOSED_VARIABLE, SECRETS_SETUP, TEXT_BLOCKS,
-                            UNIQUE_SETUP,
-                            _state_keyword, frame_locator, open_block, robot_arg, robot_locator, robot_variables, secret_cell,
-                            selenium_keys, typing_keyword, value_keyword)
+from .codegen_robot import (_ADS, _ALERTS, _CLICK, _CLOSED, _COOKIES, _COOKIES_FRAME, _COUNT, _DRAG, _HIDES, _OPEN, _ORDER,
+                            _SECRETS, _SESSION_LOAD, _SESSION_SAVE, _SHOWS, _UNIQUE, _VISIBLE, ADS_VARIABLE, CLOSED_VARIABLE,
+                            SECRETS_SETUP, TEXT_BLOCKS, UNIQUE_SETUP, _state_keyword, frame_locator, open_block, robot_arg,
+                            robot_locator, robot_variables, secret_cell, selenium_keys, typing_keyword, value_keyword)
 from .coffre import env_names, split
 from .donnees import UNIQUE, masquer
 
@@ -408,8 +407,8 @@ def _element_step(scenario: _Scenario, names: _Names, action, result) -> None:
         elif args.get("button") == "right":
             sentence, keyword = f"je fais un clic droit sur {name}", "Open Context Menu"
         else:
-            sentence, keyword = f"je clique sur {name}", "Click Element"
-        define(sentence, [f"{keyword}    {locator}"])
+            sentence, keyword = f"je clique sur {name}", "Cliquer"
+        define(sentence, [f"{keyword}    {locator}"], _CLICK if keyword == "Cliquer" else None)
         scenario.add("action", sentence)
     elif action.name == "press":
         sentence = f'j\'appuie sur la touche "{_safe(key_label(args["key"]))}" dans {name}'
