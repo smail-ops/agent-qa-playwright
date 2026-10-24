@@ -7,7 +7,7 @@
 | Appels au modèle | aucun (démo sans IA) |
 | Vision | non |
 | Navigateur | Chromium 141.0.7390.37 |
-| Date | 24/10/2026 07:41 |
+| Date | 24/10/2026 08:13 |
 | Durée | 1 s |
 | Actions | 8 |
 

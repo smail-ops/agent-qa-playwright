@@ -20,7 +20,7 @@ from test_alfred import alfred, read_events, request  # noqa: F401 (fixture part
 from test_atelier_genere import run_on_new_page
 from test_robot import run_robot
 
-from agent import campagne
+from agent import campagne, navigateur
 from agent.__main__ import main as agent_main
 from agent.actions import Action
 from agent.bilan import Execution, comparer, lire_campagne
@@ -279,6 +279,16 @@ def test_localisateurs_verifies_dans_la_page(pw_page, demo_url):
     assert recommend(pw_page, buttons[1]) == "get_by_role('button', name='Ajouter au panier', exact=True).nth(1)"
 
 
+def test_attribut_de_test_plutot_qu_un_rang(pw_page, demo_url):
+    """Trois boutons « Voir le détail » : le deuxième garde son attribut de test, pas son rang, qui change avec la liste."""
+    pw_page.goto(f"{demo_url}/catalogue.html")
+    expect(pw_page.locator("#etat")).to_have_text("3 produits")
+    details = [e for e in observe(pw_page).elements if e.text == "Voir le détail"]
+    assert [e.selector for e in details] == [f'[data-test="detail-{numero}"]' for numero in (1, 2, 3)]
+    assert recommend(pw_page, details[1]) is None
+    assert locator_code(details[1]) == "page.locator('[data-test=\"detail-2\"]')"
+
+
 def test_sans_localisateur_recommande_le_selecteur_reste():
     champ = Element(ref=1, tag="div", type=None, text="", attrs={"field": True}, selector="div.liste", nth=2)
     assert locator_code(champ) == "page.locator('div.liste').nth(2)"
@@ -300,6 +310,19 @@ def test_choix_du_navigateur_et_de_l_appareil():
         choisir("chromium", "Nokia 3310")
     with pytest.raises(ValueError, match="Firefox ne sait pas émuler un téléphone"):
         choisir("firefox", "Pixel 7")
+
+
+def test_liste_des_appareils_demandee_a_playwright(monkeypatch):
+    """Une version de Playwright qui range sa liste d'appareils ailleurs : Playwright la donne lui-même."""
+    monkeypatch.setattr(navigateur, "_from_package", lambda: {})
+    navigateur.appareils.cache_clear()
+    try:
+        assert navigateur.appareils()["iPhone 15"]["is_mobile"] is True
+        assert choisir("webkit", "iphone  15") == ("webkit", "iPhone 15")
+        with pytest.raises(ValueError, match="appareil inconnu"):
+            choisir("chromium", "Nokia 3310")
+    finally:
+        navigateur.appareils.cache_clear()
 
 
 def test_navigateur_non_installe():

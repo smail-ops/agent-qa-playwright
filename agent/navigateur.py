@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from functools import lru_cache
 from pathlib import Path
 
@@ -38,18 +39,51 @@ def _snake(name: str) -> str:
 def appareils() -> dict[str, dict]:
     """Les appareils que Playwright sait émuler : nom -> réglages (user_agent, viewport, is_mobile...).
 
-    La liste est lue dans le paquet de Playwright, sans lancer de navigateur. Vide si elle est introuvable :
-    le nom de l'appareil est alors vérifié au lancement.
+    La liste est lue dans le paquet de Playwright, sans lancer de navigateur ; une version de Playwright qui la
+    range ailleurs la donne elle-même. Vide si rien ne marche : le nom de l'appareil est alors vérifié au lancement.
     """
+    return _from_package() or _from_driver()
+
+
+def _from_package() -> dict[str, dict]:
+    """La liste du paquet de Playwright (deviceDescriptorsSource.json), là où il la range."""
     try:
         import playwright
-
-        source = Path(playwright.__file__).parent / "driver" / "package" / "lib" / "server" / "deviceDescriptorsSource.json"
-        data = json.loads(source.read_text(encoding="utf-8"))
-    except (ImportError, OSError, ValueError):
+    except ImportError:
         return {}
-    return {name: {_snake(key): value for key, value in descriptor.items() if key != "screen"}
-            for name, descriptor in data.items() if isinstance(descriptor, dict)}
+    package = Path(playwright.__file__).parent / "driver" / "package"
+    usual = package / "lib" / "server" / "deviceDescriptorsSource.json"
+    for source in [usual] if usual.is_file() else sorted(package.glob("lib/**/deviceDescriptorsSource.json")):
+        try:
+            data = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        found = {name: {_snake(key): value for key, value in descriptor.items() if key != "screen"}
+                 for name, descriptor in data.items() if isinstance(descriptor, dict)}
+        if found:
+            return found
+    return {}
+
+
+def _from_driver() -> dict[str, dict]:
+    """La liste demandée à Playwright, dans un fil à part : son API synchrone refuse de démarrer dans une boucle
+    asyncio, ou à l'intérieur d'un autre Playwright du même fil."""
+    found: dict[str, dict] = {}
+
+    def read() -> None:
+        try:
+            from playwright.sync_api import sync_playwright
+
+            with sync_playwright() as playwright:
+                found.update({name: {key: value for key, value in descriptor.items() if key != "screen"}
+                              for name, descriptor in playwright.devices.items()})
+        except Exception:  # Playwright absent ou cassé : le nom sera vérifié au lancement
+            found.clear()
+
+    worker = threading.Thread(target=read, daemon=True)
+    worker.start()
+    worker.join(60)
+    return dict(found)
 
 
 def _cle(name: str) -> str:

@@ -19,10 +19,10 @@ CT-00 Démo locale : connexion et panier
     Ouvrir le navigateur    http://localhost:8000/index.html
     Input Text    css:#user-name    standard_user
     Input Password    css:#password    %{MOT_DE_PASSE_LOCALHOST}
-    Click Element    css:[data-test="login-button"]
+    Cliquer    css:[data-test="login-button"]
     Wait Until Location Contains    inventory
     La page affiche    Produits
-    Click Element    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
+    Cliquer    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
     La page affiche    Panier (1)
 
 *** Keywords ***
@@ -39,6 +39,13 @@ Ouvrir le navigateur
         Open Browser    ${url}    ${BROWSER}
     END
     Set Window Size    1280    800
+
+Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 
 La page affiche
     [Documentation]    Attend que le texte soit affiché. La casse et les espaces ne comptent pas, comme pour l'agent.

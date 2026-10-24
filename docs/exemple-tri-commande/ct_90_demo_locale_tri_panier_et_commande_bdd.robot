@@ -46,7 +46,7 @@ je saisis le mot de passe "${variable}" dans le champ "Mot de passe"
     Input Password    css:#password    %{${variable}}
 
 je clique sur le bouton "Connexion"
-    Click Element    css:[data-test="login-button"]
+    Cliquer    css:[data-test="login-button"]
 
 la page affiche ${nombre:\d+} fois "${texte}"
     La page affiche ce nombre de fois    ${texte}    ${nombre}
@@ -60,16 +60,16 @@ la page affiche dans cet ordre : ${textes}
     La page affiche dans l'ordre    @{liste}
 
 je clique sur le bouton "Ajouter au panier" n°1
-    Click Element    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
+    Cliquer    xpath:(//button[contains(normalize-space(.), "Ajouter au panier")])[1]
 
 je clique sur le lien "Commander"
-    Click Element    css:[data-test="checkout"]
+    Cliquer    css:[data-test="checkout"]
 
 le bouton "Continuer" est grisé
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Element Should Be Disabled    css:[data-test="continuer"]
 
 je clique sur la case "J'accepte les conditions générales de vente"
-    Click Element    css:[data-test="cgu"]
+    Cliquer    css:[data-test="cgu"]
 
 la case "J'accepte les conditions générales de vente" est cochée
     Wait Until Keyword Succeeds    ${DELAI}    200ms    Checkbox Should Be Selected    css:[data-test="cgu"]
@@ -93,6 +93,13 @@ Ouvrir le navigateur
         Open Browser    ${url}    ${BROWSER}
     END
     Set Window Size    1280    800
+
+Cliquer
+    [Documentation]    Clique sur l'élément, comme l'agent. Si la page le remplace au moment du clic (une liste
+    ...    rechargée par l'API, une application monopage), Selenium lève StaleElementReferenceException :
+    ...    le clic est retenté, avec l'élément cherché de nouveau.
+    [Arguments]    ${localisateur}
+    Wait Until Keyword Succeeds    ${DELAI}    200ms    Click Element    ${localisateur}
 
 La page affiche ce nombre de fois
     [Documentation]    Attend que le texte soit affiché exactement ce nombre de fois.
