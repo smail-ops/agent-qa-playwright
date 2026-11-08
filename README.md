@@ -198,6 +198,18 @@ python -m alfred
 
 Sur Mac, tu peux aussi double-cliquer sur `Alfred.command`, à la racine du projet. La page s'ouvre toute seule sur http://127.0.0.1:8765. Alfred sert aussi le site de démo : les cas de démo (CT-00 et CT-90 à CT-98) fonctionnent avec le moteur « Démo sans IA », sans clé d'API.
 
+### Alfred en application Mac
+
+`Alfred.app`, à la racine du projet, lance Alfred comme une application : un clic, sans fenêtre de Terminal.
+
+1. Fais l'installation une fois (`.venv` compris), comme plus haut.
+2. Glisse `Alfred.app` dans le Dock, en la laissant dans le dossier du projet.
+3. Un clic sur l'icône démarre Alfred en arrière-plan et l'ouvre dans sa propre fenêtre, sans barre d'adresse (avec Chrome ; sinon dans le navigateur par défaut). Si Alfred tourne déjà, l'icône rouvre seulement la fenêtre.
+
+Pour l'arrêter : le bouton **Quitter** de la page (deux clics, pour confirmer), ou simplement fermer la fenêtre. Alfred s'arrête alors seul trois minutes plus tard, jamais pendant une mission : la page lui signale qu'elle est ouverte toutes les 30 secondes (`python -m alfred --arret-auto` fait la même chose depuis le Terminal). Ce qu'Alfred affiche d'habitude dans le Terminal va dans `~/Library/Logs/Alfred.log`, lisible avec l'application Console.
+
+Copiée ailleurs (dans Applications, par exemple), l'application retrouve le projet de son dernier lancement. Au premier lancement, macOS peut demander l'accès au dossier du projet.
+
 - **Le cadran** : l'anneau extérieur compte les actions (20 au plus), en vert les vérifications réussies et en rouge les échecs. L'anneau intérieur montre la phase en cours : observer, réfléchir, agir.
 - **La voix** : Alfred annonce ce qu'il fait, puis le verdict. Les mots de passe ne sont jamais lus ni affichés.
 - **Parler à Alfred** : au micro ou dans le champ « Écrivez-moi ». Voir [Parler librement à Alfred](#parler-librement-à-alfred).
@@ -588,7 +600,7 @@ La commande prépare l'import des cas de test dans Squash TM : un fichier Excel,
 
 ## Tests du projet
 
-Les 514 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
+Les 528 tests du projet utilisent le site de démo local et le fournisseur `scripted` : ils ne demandent ni clé d'API ni connexion Internet (la documentation officielle y est remplacée par des pages d'exemple).
 
 ```bash
 pytest
@@ -648,7 +660,8 @@ Deux autres jobs complètent la vérification : la collection Postman de la dém
 | `alfred/narration.py` | phrases affichées et prononcées par Alfred |
 | `alfred/conversation.py` | conversation libre : contexte envoyé au modèle, réponse et action contrôlées |
 | `alfred/static/index.html` | l'interface : cadran, voix, commandes vocales et conversation, journal de mission, propositions |
-| `Alfred.command` | lanceur d'Alfred pour macOS, en double-clic |
+| `Alfred.command` | lanceur d'Alfred pour macOS, en double-clic, dans une fenêtre de Terminal |
+| `Alfred.app` | Alfred en application macOS : serveur en arrière-plan, fenêtre dédiée, arrêt automatique |
 
 ## Dépannage
 
@@ -676,6 +689,8 @@ Deux autres jobs complètent la vérification : la collection Postman de la dém
 | `openpyxl manque` | `pip install -r requirements.txt`, puis relance `python -m agent.squash` |
 | `npx: command not found` | Newman a besoin de Node.js : installe-le depuis nodejs.org |
 | Pas de bouton micro | la reconnaissance vocale dépend du navigateur : elle fonctionne dans Chrome, Safari peut demander d'activer la dictée de macOS, Firefox ne la propose pas |
+| « Alfred.app ne peut pas être ouverte » | le projet a été téléchargé en .zip, pas avec `git clone` : clic droit sur `Alfred.app`, puis Ouvrir. Si macOS refuse encore, Réglages Système, Confidentialité et sécurité, « Ouvrir quand même » |
+| Alfred.app ne fait rien | lis `~/Library/Logs/Alfred.log` (application Console) : l'erreur de démarrage d'Alfred y est écrite |
 
 ## Limites et pistes
 
@@ -714,6 +729,8 @@ Les limites de l'agent, relevées dans le code et, pour la plupart, vérifiées 
 - Le bandeau de cookies est accepté, jamais refusé : les traceurs du site sont actifs pendant le test. Chaque test repart d'un navigateur neuf, qui les oublie, sauf ceux d'une session enregistrée.
 - Les tests Robot Framework ne bloquent les publicités qu'avec Chrome : avec Firefox, une publicité plein écran peut couvrir la page.
 - Le masquage ne voit pas un nom au milieu d'une phrase (« commande de Jean Dupont expédiée »), ni une adresse sans numéro de voie. Le texte du cas, identifiants compris (mais sans ses mots de passe), part chez le fournisseur du modèle. Sur la capture de la vision, seules les données que le texte masque sont cachées : un nom dans une image, ou écrit en dehors du texte de la page (canvas), reste visible.
+
+**Nouveau en version 0.11** : Alfred en application Mac (`Alfred.app`), avec sa fenêtre dédiée, le bouton Quitter et l'arrêt automatique quand sa fenêtre est fermée.
 
 **Nouveau en version 0.10** : la campagne en une commande, avec reprise après le quota, et la relance des tests en échec à la voix ; la donnée unique à chaque exécution (`{unique}`) et les sessions réutilisées ; Firefox, WebKit et les téléphones émulés ; les localisateurs recommandés par Playwright dans le test pytest ; la collection Postman des appels d'API, rejouée par Newman ; l'import dans Squash TM ; les publicités bloquées, le bandeau de cookies dans un cadre, les éléments à l'écran d'abord, la capture masquée de la vision et la vérification « absent » dans les cadres pour les tests générés ; la documentation de Postman, d'Appium et de pytest-bdd pour Alfred.
 

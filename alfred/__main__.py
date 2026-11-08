@@ -46,13 +46,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-browser", action="store_true", help="ne pas ouvrir le navigateur au démarrage")
     parser.add_argument("--max-steps", type=int, default=20, help="nombre maximal d'actions par mission")
     parser.add_argument("--silencieux", action="store_true", help="pas de salutation à voix haute au démarrage")
+    parser.add_argument("--arret-auto", nargs="?", const=3.0, type=float, default=None, metavar="MINUTES",
+                        help="s'arrêter seul quand aucune fenêtre Alfred n'est ouverte depuis MINUTES "
+                             "(3 par défaut), sauf pendant une mission : c'est le mode d'Alfred.app")
     args = parser.parse_args(argv)
+    if args.arret_auto is not None and args.arret_auto <= 0:
+        parser.error("--arret-auto attend un nombre de minutes positif, par exemple --arret-auto 3")
 
     os.chdir(PROJECT_ROOT)  # cas_de_test/, rapports/ et .env sont lus depuis la racine du projet
     load_dotenv(PROJECT_ROOT / ".env")
 
+    arret_auto = args.arret_auto * 60 if args.arret_auto is not None else None
     try:
-        server = AlfredServer(("127.0.0.1", args.port), "cas_de_test", "rapports", args.max_steps)
+        server = AlfredServer(("127.0.0.1", args.port), "cas_de_test", "rapports", args.max_steps,
+                              arret_auto=arret_auto)
     except OSError:
         print(f"Le port {args.port} est déjà utilisé : Alfred tourne peut-être déjà.", file=sys.stderr)
         print(f"Ouvrez http://127.0.0.1:{args.port} ou choisissez un autre port avec --port.", file=sys.stderr)
@@ -64,7 +71,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Site de démo    : http://localhost:{DEMO_PORT} (servi par Alfred)")
     else:
         print(f"Site de démo    : le port {DEMO_PORT} est déjà pris, je suppose que la démo tourne déjà.")
-    print("Ctrl + C pour arrêter Alfred.")
+    if arret_auto is not None:
+        print(f"Arrêt auto      : {args.arret_auto:g} min après la fermeture de la dernière fenêtre Alfred")
+    print("Ctrl + C, ou le bouton Quitter de la page, pour arrêter Alfred.")
 
     # Alfred se présente et salue son maître, avec la voix du Mac : le navigateur ne peut pas parler avant un clic.
     texte = maitre.salutation(maitre.nom_du_maitre())
@@ -76,8 +85,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nAlfred s'arrête. À bientôt.")
+        print()
     finally:
+        print("Alfred s'arrête. À bientôt.", flush=True)
+        server.arreter_mission()
+        server.attendre_mission(20)  # la mission arrêtée termine son rapport avant la fin du programme
         server.server_close()
         if demo is not None:
             demo.shutdown()

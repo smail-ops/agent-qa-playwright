@@ -16,12 +16,18 @@ Routes :
     POST /api/conversation              une phrase libre du testeur : réponse d'Alfred et action contrôlée
     GET  /api/missions/<id>/events      événements de la mission, en direct (Server-Sent Events)
     POST /api/missions/<id>/stop        demande l'arrêt de la mission
+    POST /api/presence                  la page est ouverte : signal envoyé toutes les 30 secondes
+    POST /api/quitter                   arrête la mission en cours, puis Alfred
     GET  /missions/<id>/<fichier>       captures, rapport et tests générés
     GET  /rapports/<dossier>/<fichier>  fichiers d'une exécution passée (Alfred les ouvre quand on les lui demande)
 
 Sécurité : Alfred n'écoute que sur 127.0.0.1, refuse les requêtes dont l'en-tête
 Host n'est pas local (protection contre le « DNS rebinding »), refuse les POST
 venant d'un autre site et ne sert que les fichiers de ses propres missions.
+
+Arrêt automatique (Alfred.app) : lancé avec arret_auto, Alfred s'arrête seul
+quand plus aucune page ne s'est signalée depuis ce délai et qu'aucune mission
+ne tourne. Fermer la fenêtre suffit donc à libérer la mémoire de l'ordinateur.
 """
 
 from __future__ import annotations
@@ -31,6 +37,7 @@ import os
 import re
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -167,8 +174,11 @@ class AlfredServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, address=("127.0.0.1", 8765), cases_dir="cas_de_test", reports_dir="rapports", max_steps=20,
-                 env_path=".env", memory_dir=None):
+                 env_path=".env", memory_dir=None, arret_auto: float | None = None, periode_veille: float = 15.0):
         super().__init__(address, AlfredHandler)
+        self.arret_auto = arret_auto  # secondes sans page ouverte avant l'arrêt automatique (None : jamais)
+        self.derniere_presence = time.monotonic()
+        self.arrete = threading.Event()
         self.cases_dir = Path(cases_dir)
         self.env_path = Path(env_path)  # le .env de cet ordinateur : clés d'API et prénom du maître
         self.missions = MissionManager(Path(reports_dir), max_steps, memory_dir, self.env_path)
@@ -179,10 +189,53 @@ class AlfredServer(ThreadingHTTPServer):
         port = self.server_address[1]
         self.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
         self.allowed_origins = {f"http://{host}" for host in self.allowed_hosts}
+        if arret_auto is not None:
+            threading.Thread(target=self._veiller, args=(periode_veille,), name="veille", daemon=True).start()
 
     @property
     def url(self) -> str:
         return f"http://127.0.0.1:{self.server_address[1]}/"
+
+    # --- Présence de la page, arrêt ---------------------------------------------------
+
+    def presence(self) -> None:
+        """La page d'Alfred est ouverte : l'arrêt automatique attend encore."""
+        self.derniere_presence = time.monotonic()
+
+    def mission_en_cours(self) -> bool:
+        current = self.missions.current
+        return current is not None and not current.finished
+
+    def arreter_mission(self) -> None:
+        """Demande l'arrêt de la mission en cours, et des missions suivantes d'une série."""
+        current = self.missions.current
+        if current is not None and not current.finished:
+            current.stop_event.set()
+            if current.serie is not None:
+                current.serie.stop.set()
+
+    def quitter(self) -> None:
+        """Arrête la mission en cours, puis le serveur. Depuis un autre fil que serve_forever."""
+        if self.arrete.is_set():
+            return
+        self.arrete.set()
+        self.arreter_mission()
+        threading.Thread(target=self.shutdown, name="arret", daemon=True).start()
+
+    def attendre_mission(self, delai: float) -> None:
+        """Après l'arrêt du serveur : la mission arrêtée a le temps d'écrire son rapport avant la fin du programme."""
+        fin = time.monotonic() + delai
+        while self.mission_en_cours() and time.monotonic() < fin:
+            time.sleep(0.2)
+
+    def _veiller(self, periode: float) -> None:
+        """Arrêt automatique : plus de page ouverte depuis arret_auto secondes, et aucune mission en cours."""
+        while not self.arrete.wait(periode):
+            if self.mission_en_cours():
+                self.presence()  # une mission peut durer : le délai repart de sa fin
+            elif time.monotonic() - self.derniere_presence > self.arret_auto:
+                print("Plus de fenêtre Alfred ouverte : Alfred s'arrête.", flush=True)
+                self.quitter()
 
     def status(self) -> dict:
         current = self.missions.current
@@ -249,6 +302,15 @@ class AlfredHandler(BaseHTTPRequestHandler):
             return self._save_proposals()
         if path == "/api/conversation":
             return self._converse()
+        if path == "/api/presence":
+            self._vider()
+            self.server.presence()
+            return self._json(200, {"ok": True})
+        if path == "/api/quitter":
+            self._vider()
+            stopping = self.server.mission_en_cours()
+            self._json(202, {"arret": True, "mission_arretee": stopping})
+            return self.server.quitter()
         self._json(404, {"error": "Adresse inconnue."})
 
     # --- Protections -----------------------------------------------------------
@@ -268,6 +330,15 @@ class AlfredHandler(BaseHTTPRequestHandler):
             self._json(415, {"error": "Le corps de la requête doit être au format JSON."})
             return False
         return True
+
+    def _vider(self) -> None:
+        """Lit le corps d'une requête qui n'attend pas de paramètre, pour ne pas le laisser dans la connexion."""
+        try:
+            length = min(int(self.headers.get("Content-Length") or 0), MAX_BODY)
+        except ValueError:
+            return
+        if length > 0:
+            self.rfile.read(length)
 
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)

@@ -1,0 +1,56 @@
+#!/bin/sh
+# Alfred.app : démarre Alfred en arrière-plan, sans fenêtre de Terminal, et l'ouvre dans sa propre fenêtre.
+# Alfred s'arrête seul quelques minutes après la fermeture de sa dernière fenêtre (python -m alfred --arret-auto),
+# ou tout de suite avec le bouton Quitter de la page. Son journal : ~/Library/Logs/Alfred.log.
+
+PORT=8765
+URL="http://127.0.0.1:$PORT/"
+CONFIG="$HOME/Library/Application Support/Alfred"
+JOURNAL="$HOME/Library/Logs/Alfred.log"
+
+# Lancée depuis le Finder ou le Dock, une application ne voit pas les outils de Homebrew (Node pour Newman...)
+PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"
+export PATH
+
+alerte() {
+  osascript -e "display alert \"Alfred\" message \"$1\"" >/dev/null 2>&1
+}
+
+repond() {
+  curl -s -o /dev/null --max-time 1 "$URL"
+}
+
+# Le projet : le dossier qui contient Alfred.app, sinon celui du dernier lancement réussi
+APP=$(cd "$(dirname "$0")/../.." && pwd)
+PROJET=$(dirname "$APP")
+if [ ! -x "$PROJET/.venv/bin/python" ] && [ -f "$CONFIG/projet" ]; then
+  PROJET=$(cat "$CONFIG/projet")
+fi
+if [ ! -x "$PROJET/.venv/bin/python" ]; then
+  alerte "Environnement .venv introuvable. Suis l’installation du README, puis lance Alfred.app depuis le dossier du projet."
+  exit 1
+fi
+mkdir -p "$CONFIG" "$(dirname "$JOURNAL")"
+printf '%s\n' "$PROJET" > "$CONFIG/projet"
+
+if ! repond; then
+  cd "$PROJET" || exit 1
+  printf '\n--- %s\n' "$(date '+%d/%m/%Y %H:%M:%S')" >> "$JOURNAL"
+  nohup ./.venv/bin/python -m alfred --no-browser --arret-auto >> "$JOURNAL" 2>&1 &
+  essais=0
+  until repond; do
+    essais=$((essais + 1))
+    if [ "$essais" -ge 60 ]; then
+      alerte "Alfred n’a pas démarré. Le journal est dans ~/Library/Logs/Alfred.log."
+      exit 1
+    fi
+    sleep 0.5
+  done
+fi
+
+# Une fenêtre d'application : Chrome sans barre d'adresse s'il est installé, sinon le navigateur par défaut
+if osascript -e 'id of application "Google Chrome"' >/dev/null 2>&1; then
+  open -na "Google Chrome" --args --app="$URL"
+else
+  open "$URL"
+fi

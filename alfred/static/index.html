@@ -78,6 +78,14 @@ h2, h3, h4, p { margin: 0; }
 }
 .bouton-discret:hover { border-color: var(--trait-fort); }
 .bouton-discret svg { width: 18px; height: 18px; }
+#bouton-quitter[data-confirmer="1"] { color: var(--ambre); border-color: var(--ambre); }
+.arret {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 12px;
+  padding: 24px; text-align: center; background: var(--abysse); color: var(--brume);
+}
+.arret svg { width: 56px; height: 56px; color: var(--brume); }
+.arret-titre { margin: 0; font-family: var(--voix); font-style: italic; font-size: 34px; color: var(--ivoire); }
+.arret-texte { margin: 0; max-width: 42ch; font-size: 15px; }
 #bouton-voix[aria-pressed="false"] { color: var(--brume); }
 
 /* Trois zones : les cas, le poste d'Alfred, le journal */
@@ -419,8 +427,18 @@ dialog pre { margin: 0; padding: 18px; overflow: auto; max-height: calc(86vh - 6
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
       <span>Réglages</span>
     </button>
+    <button class="bouton-discret" id="bouton-quitter" type="button" aria-label="Quitter Alfred">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3.5v8"/><path d="M7.2 6.6a7.5 7.5 0 1 0 9.6 0"/></svg>
+      <span id="bouton-quitter-texte">Quitter</span>
+    </button>
   </div>
 </header>
+
+<div class="arret" id="arret" role="status" hidden>
+  <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-dasharray="5.2 3.4"/><circle cx="16" cy="16" r="3.6" fill="currentColor"/></svg>
+  <p class="arret-titre">Alfred est arrêté.</p>
+  <p class="arret-texte">Vous pouvez fermer cette fenêtre. Pour le relancer : Alfred.app, ou python -m alfred.</p>
+</div>
 
 <main>
   <section class="panneau cas" aria-labelledby="titre-cas">
@@ -1776,6 +1794,7 @@ URL : https://www.saucedemo.com/
       else Parole.taire();
     });
     $("bouton-reglages").addEventListener("click", () => Reglages.ouvrir());
+    $("bouton-quitter").addEventListener("click", quitter);
     $("reglages-fermer").addEventListener("click", () => $("fenetre-reglages").close());
     const surEntree = (champ, action) => champ.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); action(); } });
     const depuisReglages = () => enregistrerMaitre($("reglage-prenom").value, $("reglage-message"));
@@ -1807,8 +1826,57 @@ URL : https://www.saucedemo.com/
     });
   }
 
+  // --- Présence et arrêt ----------------------------------------------------------------
+  // Lancé par Alfred.app, Alfred s'arrête seul quelques minutes après la fermeture de sa dernière fenêtre :
+  // la page lui signale qu'elle est ouverte, toutes les 30 secondes.
+  let presence = null;
+  function signalerPresence() {
+    fetch("/api/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+  }
+  function suivrePresence() {
+    signalerPresence();
+    presence = setInterval(signalerPresence, 30_000);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && presence) signalerPresence(); });
+  }
+
+  let confirmation = null;
+  async function quitter() {
+    const bouton = $("bouton-quitter");
+    if (bouton.dataset.confirmer !== "1") {  // premier clic : demander confirmation, sans fenêtre du navigateur
+      bouton.dataset.confirmer = "1";
+      const mission = etat.mission && !etat.mission.fini;
+      $("bouton-quitter-texte").textContent = mission ? "Arrêter la mission et quitter ?" : "Confirmer";
+      bouton.setAttribute("aria-label", "Confirmer : quitter Alfred");
+      confirmation = setTimeout(() => {
+        bouton.dataset.confirmer = "";
+        $("bouton-quitter-texte").textContent = "Quitter";
+        bouton.setAttribute("aria-label", "Quitter Alfred");
+      }, 4000);
+      return;
+    }
+    clearTimeout(confirmation);
+    bouton.disabled = true;
+    try {
+      await api("/api/quitter", { method: "POST", corps: {} });
+    } catch (erreur) {
+      bouton.disabled = false;
+      bouton.dataset.confirmer = "";
+      $("bouton-quitter-texte").textContent = "Quitter";
+      annoncer(erreur.message, { parler: false });
+      return;
+    }
+    clearInterval(presence);
+    presence = null;
+    Parole.taire();
+    if (Ecoute.session) Ecoute.session.abort();
+    $("arret").hidden = false;
+    document.title = "Alfred · arrêté";
+    setTimeout(() => window.close(), 1200);  // fenêtre d'application ouverte par Alfred.app : elle se ferme
+  }
+
   async function demarrer() {
     brancher();
+    suivrePresence();
     Parole.init();
     majBoutonVoix();
     majRole();
